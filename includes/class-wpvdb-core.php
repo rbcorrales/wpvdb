@@ -195,31 +195,46 @@ class Core {
             return new \WP_Error('embedding_error', __('API base URL is required for embedding.', 'wpvdb'));
         }
 
+        // Playground / SQLite: skip the SDK paths. Both `AiClient::generateEmbeddingsResult`
+        // and the HttpTransporterFactory build their PSR-7 clients via
+        // php-http/discovery and bypass the WP HTTP API, so the
+        // `http_request_args` CORS authorization opt-in filter in wpvdb.php does
+        // not see them. Force the wp_remote_post catch-block path below so the
+        // filter applies and the CORS proxy forwards the Bearer header.
+        $skip_sdk = \function_exists('wpvdb_is_playground_or_sqlite') && \wpvdb_is_playground_or_sqlite();
+
         // Prefer PHP AI Client embeddings when using the default OpenAI endpoint.
-        $ai_client_embedding = self::maybe_get_embedding_via_ai_client($text, $model, $api_base, $api_key, $custom_options);
-        if (is_array($ai_client_embedding)) {
-            if (!self::is_valid_embedding($ai_client_embedding)) {
-                return new \WP_Error('embedding_error', 'AI Client returned an invalid embedding.');
+        if (! $skip_sdk) {
+            $ai_client_embedding = self::maybe_get_embedding_via_ai_client($text, $model, $api_base, $api_key, $custom_options);
+            if (is_array($ai_client_embedding)) {
+                if (!self::is_valid_embedding($ai_client_embedding)) {
+                    return new \WP_Error('embedding_error', 'AI Client returned an invalid embedding.');
+                }
+                Cache::set_embedding($text, $model, $ai_client_embedding);
+                return $ai_client_embedding;
+            } elseif (is_wp_error($ai_client_embedding)) {
+                Logger::debug(
+                    'AI Client embedding failed, falling back to HTTP request.',
+                    [
+                        'error' => $ai_client_embedding->get_error_message(),
+                        'model' => $model,
+                    ]
+                );
             }
-            Cache::set_embedding($text, $model, $ai_client_embedding);
-            return $ai_client_embedding;
-        } elseif (is_wp_error($ai_client_embedding)) {
-            Logger::debug(
-                'AI Client embedding failed, falling back to HTTP request.',
-                [
-                    'error' => $ai_client_embedding->get_error_message(),
-                    'model' => $model,
-                ]
-            );
         }
-        
+
         $extra_headers = [];
         if (Providers::is_automattic_ai_proxy_url($url)) {
             $extra_headers['X-WPCOM-AI-Feature'] = apply_filters('wpvdb_a8c_ai_feature', 'wpcloud-vector-search', $model, $api_base);
         }
 
         // Try AI Client transporter first for consistency with the WP AI stack.
+        // On Playground, throw immediately so the catch block (wp_remote_post)
+        // runs without reimplementing the response handling.
         try {
+            if ($skip_sdk) {
+                throw new \RuntimeException('wpvdb: Playground/SQLite mode, routing through wp_remote_post for CORS authorization opt-in');
+            }
             $transporter = HttpTransporterFactory::createTransporter();
             $request     = new Request(
                 HttpMethodEnum::POST(),

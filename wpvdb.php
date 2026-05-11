@@ -139,6 +139,50 @@ add_filter('wpvdb_enable_fallbacks', function ($enabled) {
     return $enabled;
 });
 
+// Playground / SQLite: opt in to the Service Worker CORS proxy forwarding the
+// `Authorization` header. By default the proxy strips it
+// (packages/playground/php-cors-proxy/cors-proxy.php:170) and the SW only
+// forwards credentials when the client sets
+// `X-Cors-Proxy-Allowed-Request-Headers: authorization` (lowercase, checked
+// at packages/php-wasm/web-service-worker/src/lib/fetch-with-cors-proxy.ts:69-75).
+// Without this filter, every Bearer-authenticated embedding request to
+// api.openai.com or public-api.wordpress.com returns 401 inside Playground.
+//
+// Hook: `http_request_args` is the WP HTTP API request-shaping filter and merges
+// headers into the outbound request. `pre_http_request` would short-circuit and
+// is the wrong hook.
+//
+// Scope: only inject for known embedding-provider hosts; do not touch unrelated
+// outbound requests from WordPress core or other plugins.
+add_filter('http_request_args', function ($args, $url) {
+    if (! wpvdb_is_playground_or_sqlite()) {
+        return $args;
+    }
+    if (! is_string($url) || $url === '') {
+        return $args;
+    }
+    $host = parse_url($url, PHP_URL_HOST);
+    $allowed_hosts = [
+        'api.openai.com',
+        'public-api.wordpress.com',
+    ];
+    if (! in_array($host, $allowed_hosts, true)) {
+        return $args;
+    }
+    if (! isset($args['headers']) || ! is_array($args['headers'])) {
+        $args['headers'] = [];
+    }
+    $existing = isset($args['headers']['X-Cors-Proxy-Allowed-Request-Headers'])
+        ? (string) $args['headers']['X-Cors-Proxy-Allowed-Request-Headers']
+        : '';
+    $opt_in_list = array_filter(array_map('trim', explode(',', $existing)));
+    if (! in_array('authorization', $opt_in_list, true)) {
+        $opt_in_list[] = 'authorization';
+    }
+    $args['headers']['X-Cors-Proxy-Allowed-Request-Headers'] = implode(', ', $opt_in_list);
+    return $args;
+}, 10, 2);
+
 // Get the plugin instance
 $wpvdb_plugin = \WPVDB\Plugin::get_instance();
 
