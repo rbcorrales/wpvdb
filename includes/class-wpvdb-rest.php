@@ -406,14 +406,31 @@ class REST {
         );
 
         // Resolve $text and the cache key seed BEFORE the cache lookup.
-        // For the vector path we also derive a cache key seed from a sha256
-        // of the (yet to be normalized) JSON so vector and text lookups stay
-        // in distinct cache slots.
+        // For the vector path we also validate AND normalize the input here,
+        // so the cache key reflects the actual queried vector. Otherwise
+        // [1] / [1.0] / ["1"] would search identically but cache separately.
         $model              = isset($data['model']) ? sanitize_text_field($data['model']) : Settings::get_default_model();
         $text               = isset($data['query']) ? sanitize_textarea_field($data['query']) : '';
         $cache_key_override = null;
+        $normalized_vector  = null;
+
         if ($has_provided_vector) {
-            $vec_json           = wp_json_encode($data['vector']);
+            $provided = $data['vector'];
+            if (count($provided) !== WPVDB_DEFAULT_EMBED_DIM) {
+                return new \WP_Error('invalid_vector', sprintf(
+                    /* translators: %d is the required embedding dimension */
+                    __('Provided vector must have exactly %d dimensions.', 'wpvdb'),
+                    (int) WPVDB_DEFAULT_EMBED_DIM
+                ), ['status' => 400]);
+            }
+            $normalized_vector = [];
+            foreach ($provided as $v) {
+                if (!is_numeric($v) || !is_finite((float) $v)) {
+                    return new \WP_Error('invalid_vector', __('Provided vector contains non-finite values.', 'wpvdb'), ['status' => 400]);
+                }
+                $normalized_vector[] = (float) $v;
+            }
+            $vec_json           = wp_json_encode($normalized_vector);
             $cache_key_override = 'vec:' . hash('sha256', $vec_json !== false ? $vec_json : '');
         }
 
@@ -442,24 +459,9 @@ class REST {
             ]);
 
             if ($has_provided_vector) {
-                // Validate the provided vector. Without these guards,
-                // cosine_distance() below silently pads or truncates mismatched
-                // length vectors and returns garbage rankings.
-                $provided = $data['vector'];
-                if (count($provided) !== WPVDB_DEFAULT_EMBED_DIM) {
-                    return new \WP_Error('invalid_vector', sprintf(
-                        /* translators: %d is the required embedding dimension */
-                        __('Provided vector must have exactly %d dimensions.', 'wpvdb'),
-                        (int) WPVDB_DEFAULT_EMBED_DIM
-                    ), ['status' => 400]);
-                }
-                $embedding = [];
-                foreach ($provided as $v) {
-                    if (!is_numeric($v) || !is_finite((float) $v)) {
-                        return new \WP_Error('invalid_vector', __('Provided vector contains non-finite values.', 'wpvdb'), ['status' => 400]);
-                    }
-                    $embedding[] = (float) $v;
-                }
+                // Already validated and normalized above (before cache lookup),
+                // so the cache key matches the actual queried vector.
+                $embedding = $normalized_vector;
             } else {
                 // Determine which model to use (from settings or provided in request)
                 $provider = isset($data['provider']) ? sanitize_text_field($data['provider']) : Settings::get_active_provider();
