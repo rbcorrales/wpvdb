@@ -1903,18 +1903,27 @@ class Admin {
         
         // Show notice after bulk embed action
         if (isset($_GET['wpvdb_bulk_embed']) && isset($_GET['processed_count'])) {
-            $count = intval($_GET['processed_count']);
-            echo '<div class="notice notice-success is-dismissible"><p>';
-            printf(
-                _n(
-                    '%d post has been queued for embedding generation.',
-                    '%d posts have been queued for embedding generation.',
-                    $count,
-                    'wpvdb'
-                ),
-                $count
-            );
-            echo '</p></div>';
+            // Playground / SQLite: the non-AJAX bulk action short-circuits and
+            // sets wpvdb_demo_mode=1 on the redirect. Surface that explicitly
+            // instead of the misleading "0 posts queued" success notice.
+            if (!empty($_GET['wpvdb_demo_mode'])) {
+                echo '<div class="notice notice-warning is-dismissible"><p>';
+                esc_html_e('Demo mode: bulk embed is disabled on WordPress Playground. No posts were queued and no rows were modified.', 'wpvdb');
+                echo '</p></div>';
+            } else {
+                $count = intval($_GET['processed_count']);
+                echo '<div class="notice notice-success is-dismissible"><p>';
+                printf(
+                    _n(
+                        '%d post has been queued for embedding generation.',
+                        '%d posts have been queued for embedding generation.',
+                        $count,
+                        'wpvdb'
+                    ),
+                    $count
+                );
+                echo '</p></div>';
+            }
         }
     }
     

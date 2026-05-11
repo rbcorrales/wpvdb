@@ -77,8 +77,18 @@ if (file_exists(WPVDB_PLUGIN_DIR . 'vendor/autoload.php')) {
     require_once WPVDB_PLUGIN_DIR . 'vendor/autoload.php';
 }
 
-// Initialize Action Scheduler
-if (file_exists(WPVDB_PLUGIN_DIR . 'vendor/woocommerce/action-scheduler/action-scheduler.php')) {
+// Initialize Action Scheduler.
+// Playground / SQLite: skip the bootstrap entirely. AS would register init
+// hooks (vendor/.../abstracts/ActionScheduler.php:196), schedule queue-runner
+// kickoffs (vendor/.../ActionScheduler_QueueRunner.php:70), and enqueue
+// recurring scheduler actions (vendor/.../ActionScheduler_RecurringActionScheduler.php:25)
+// that produce inert rows in `wp_actionscheduler_actions`. With no loopback
+// and cron disabled, none of these can drain. Every wpvdb-side AS call is
+// already gated by edit 7; any missed call surfaces here as a fatal
+// "undeclared function" rather than a silently accumulating row, which is the
+// intended regression signal.
+if (! wpvdb_is_playground_or_sqlite()
+    && file_exists(WPVDB_PLUGIN_DIR . 'vendor/woocommerce/action-scheduler/action-scheduler.php')) {
     require_once WPVDB_PLUGIN_DIR . 'vendor/woocommerce/action-scheduler/action-scheduler.php';
 }
 

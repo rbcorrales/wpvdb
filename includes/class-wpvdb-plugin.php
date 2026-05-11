@@ -143,9 +143,13 @@ class Plugin {
         // Initialize admin interface
         if (is_admin()) {
             $this->admin->init();
-            
-            // Show admin notice if Action Scheduler is missing
-            if (!$this->has_action_scheduler()) {
+
+            // Show admin notice if Action Scheduler is missing.
+            // Skip under Playground / SQLite: AS bootstrap is intentionally
+            // skipped in wpvdb.php, so has_action_scheduler() returns false
+            // by design here. The "Action Scheduler is not installed" notice
+            // would otherwise misrepresent that as a configuration error.
+            if (!$this->has_action_scheduler() && ! self::is_playground_or_sqlite()) {
                 add_action('admin_notices', [$this, 'action_scheduler_missing_notice']);
             }
         }
