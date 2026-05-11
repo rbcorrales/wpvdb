@@ -408,9 +408,24 @@ class Database {
      */
     public function run_diagnostics() {
         global $wpdb;
-        
+
+        // Playground / SQLite: return a fixed diagnostic shape rather than the
+        // MySQL/MariaDB probes (the inner `VECTOR(3)` write block at line ~447
+        // is already gated by has_native_vector_support, but the outer version
+        // regex would misreport `min_required` as MySQL 8.0.32 on a connection
+        // that is structurally a SQLite drop in).
+        if (\function_exists('wpvdb_is_playground_or_sqlite') && \wpvdb_is_playground_or_sqlite()) {
+            return [
+                'db_type'              => 'sqlite',
+                'has_vector_support'   => false,
+                'fallbacks_enabled'    => $this->are_fallbacks_enabled(),
+                'playground'           => true,
+                'note'                 => 'Running on WordPress Playground / SQLite. Native VECTOR is unavailable; embeddings use the LONGTEXT JSON fallback.',
+            ];
+        }
+
         $diagnostics = [];
-        
+
         // Get database type and version
         $db_type = $this->get_db_type();
         $version_string = $wpdb->get_var('SELECT VERSION()');

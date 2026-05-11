@@ -153,11 +153,14 @@ add_action('admin_notices', [$wpvdb_plugin, 'deactivated_notice']);
 // Add deactivation action
 add_action('wpvdb_maybe_deactivate_plugin', [$wpvdb_plugin, 'maybe_deactivate_plugin']);
 
-// Add action for processing fallback queue
-add_action('wpvdb_process_fallback_queue', [$wpvdb_plugin, 'process_fallback_queue']);
-
-// Add action for running action scheduler more frequently in admin
-add_action('init', [$wpvdb_plugin, 'maybe_run_action_scheduler']);
+// Add action for processing fallback queue.
+// Add action for running action scheduler more frequently in admin.
+// Both skipped under Playground / SQLite: cron is disabled, loopback is
+// blocked, the fallback queue option would accumulate without ever draining.
+if (! wpvdb_is_playground_or_sqlite()) {
+    add_action('wpvdb_process_fallback_queue', [$wpvdb_plugin, 'process_fallback_queue']);
+    add_action('init', [$wpvdb_plugin, 'maybe_run_action_scheduler']);
+}
 
 // Add vector index to existing tables during plugin updates
 add_action('plugins_loaded', function() {

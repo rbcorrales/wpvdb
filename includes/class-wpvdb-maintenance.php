@@ -223,9 +223,15 @@ class Maintenance {
      */
     private static function update_database_statistics() {
         global $wpdb;
-        
+
+        // Belt-and-suspenders: never run MariaDB-only DDL under Playground / SQLite.
+        // Maintenance::init() should not have scheduled this in the first place.
+        if (\function_exists('wpvdb_is_playground_or_sqlite') && \wpvdb_is_playground_or_sqlite()) {
+            return;
+        }
+
         $table_name = $wpdb->prefix . 'wpvdb_embeddings';
-        
+
         // Update table statistics
         $wpdb->query("ANALYZE TABLE {$table_name}");
         
@@ -254,9 +260,13 @@ class Maintenance {
      */
     private static function optimize_database_tables() {
         global $wpdb;
-        
+
+        if (\function_exists('wpvdb_is_playground_or_sqlite') && \wpvdb_is_playground_or_sqlite()) {
+            return;
+        }
+
         $table_name = $wpdb->prefix . 'wpvdb_embeddings';
-        
+
         // Optimize the embeddings table
         $wpdb->query("OPTIMIZE TABLE {$table_name}");
         
@@ -275,10 +285,14 @@ class Maintenance {
      */
     private static function analyze_database_tables() {
         global $wpdb;
-        
+
+        if (\function_exists('wpvdb_is_playground_or_sqlite') && \wpvdb_is_playground_or_sqlite()) {
+            return;
+        }
+
         $table_name = $wpdb->prefix . 'wpvdb_embeddings';
         $wpdb->query("ANALYZE TABLE {$table_name}");
-        
+
         Logger::debug('Analyzed database tables for optimization');
     }
     

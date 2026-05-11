@@ -37,6 +37,14 @@ class WPVDB_Queue {
      * @return $this
      */
     public function push_to_queue($data, $batch = false) {
+        // Playground / SQLite: skip every queue path. Action Scheduler cannot
+        // drain (no loopback runner, cron disabled) and the wp_options fallback
+        // queue would accumulate forever. Synchronous processing for explicit
+        // admin actions is wired in a later edit.
+        if (\function_exists('wpvdb_is_playground_or_sqlite') && \wpvdb_is_playground_or_sqlite()) {
+            return $this;
+        }
+
         // Use Action Scheduler if available
         if (function_exists('wpvdb_has_action_scheduler') && wpvdb_has_action_scheduler()) {
             // Note: we use the global function, not namespaced
@@ -64,7 +72,12 @@ class WPVDB_Queue {
         if (empty($items) || !is_array($items)) {
             return $this;
         }
-        
+
+        // Playground / SQLite: skip the queue. See push_to_queue() for the why.
+        if (\function_exists('wpvdb_is_playground_or_sqlite') && \wpvdb_is_playground_or_sqlite()) {
+            return $this;
+        }
+
         // Use Action Scheduler if available
         if (function_exists('wpvdb_has_action_scheduler') && wpvdb_has_action_scheduler()) {
             // Get batch size from settings or use default
@@ -98,10 +111,16 @@ class WPVDB_Queue {
      * @return void
      */
     private function add_to_fallback_queue($data) {
+        // Playground / SQLite: skip. The fallback queue option would grow
+        // indefinitely with no path to process it.
+        if (\function_exists('wpvdb_is_playground_or_sqlite') && \wpvdb_is_playground_or_sqlite()) {
+            return;
+        }
+
         $queue = get_option(self::FALLBACK_QUEUE_OPTION, []);
         $queue[] = $data;
         update_option(self::FALLBACK_QUEUE_OPTION, $queue);
-        
+
         // Make sure we have a cron event scheduled
         if (!wp_next_scheduled('wpvdb_process_fallback_queue')) {
             wp_schedule_event(time(), 'hourly', 'wpvdb_process_fallback_queue');
@@ -161,9 +180,16 @@ class WPVDB_Queue {
      * @return $this
      */
     public function dispatch() {
+        // Playground / SQLite: skip. The inline Action Scheduler runner cannot
+        // do useful work here (no embeddings would land), and it touches state
+        // we want to leave alone in demo mode.
+        if (\function_exists('wpvdb_is_playground_or_sqlite') && \wpvdb_is_playground_or_sqlite()) {
+            return $this;
+        }
+
         // For development environments, force run the scheduler immediately
-        if (function_exists('as_has_scheduled_action') && 
-            (as_has_scheduled_action(self::PROCESS_SINGLE_ACTION, null, 'wpvdb') || 
+        if (function_exists('as_has_scheduled_action') &&
+            (as_has_scheduled_action(self::PROCESS_SINGLE_ACTION, null, 'wpvdb') ||
              as_has_scheduled_action(self::PROCESS_BATCH_ACTION, null, 'wpvdb'))) {
             
             // If we're in the admin and actions are pending, try to run immediately

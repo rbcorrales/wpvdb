@@ -161,7 +161,13 @@ class Activation {
      */
     public static function add_vector_index_to_existing_table() {
         global $wpdb;
-        
+
+        // Playground / SQLite: MariaDB-only DDL. No-op without engaging the
+        // SHOW TABLES / ALTER TABLE path that would fire under the translator.
+        if (\function_exists('wpvdb_is_playground_or_sqlite') && \wpvdb_is_playground_or_sqlite()) {
+            return false;
+        }
+
         try {
             self::init_database();
             

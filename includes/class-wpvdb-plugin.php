@@ -106,9 +106,14 @@ class Plugin {
         $this->queue = new WPVDB_Queue();
         $this->settings = new Settings();
         $this->admin = new Admin();
-        
-        // Initialize maintenance system
-        Maintenance::init();
+
+        // Initialize maintenance system. Skip entirely under SQLite / Playground:
+        // Maintenance::init() schedules recurring Action Scheduler jobs that
+        // cannot drain in Playground (no loopback, cron disabled), and the
+        // daily/weekly/monthly callbacks issue MariaDB-only DDL.
+        if (! self::is_playground_or_sqlite()) {
+            Maintenance::init();
+        }
     }
 
     /**
@@ -145,14 +150,21 @@ class Plugin {
             }
         }
         
-        // Hook into post saving for auto-embedding
-        add_action('wp_insert_post', [$this->core, 'auto_embed_post'], 10, 3);
-        
+        // Hook into post saving for auto-embedding.
+        // Skip under Playground: no working outbound embedding path, and
+        // synchronous embedding on every save would block the user multi-second.
+        if (! self::is_playground_or_sqlite()) {
+            add_action('wp_insert_post', [$this->core, 'auto_embed_post'], 10, 3);
+        }
+
         // Enhanced chunking filter (override default chunking)
         add_filter('wpvdb_chunk_text', [$this->core, 'enhanced_chunking'], 10, 2);
-        
-        // Register Action Scheduler handler (if available)
-        if ($this->has_action_scheduler()) {
+
+        // Register Action Scheduler handler (if available).
+        // Skip under Playground: AS cannot drain (no loopback, cron disabled),
+        // queued actions would accumulate as inert rows. Synchronous embedding
+        // for explicit admin actions will be wired in a later edit.
+        if ($this->has_action_scheduler() && ! self::is_playground_or_sqlite()) {
             add_action('wpvdb_process_embedding', [WPVDB_Queue::class, 'process_item'], 10, 1);
             add_action('wpvdb_process_embedding_batch', [WPVDB_Queue::class, 'process_batch'], 10, 1);
             add_action('wpvdb_run_queue_now', [$this, 'run_queue_immediately']);
