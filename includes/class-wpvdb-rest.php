@@ -303,6 +303,19 @@ class REST {
             return $validated_embedding;
         }
 
+        // Playground demo: enforce exact dimension on /vectors insert so the
+        // fallback ranker's silent pad/truncate behavior in cosine_distance()
+        // cannot be reached. Gated by Plugin::is_playground_demo() so
+        // canonical installs running text-embedding-3-small (1536 dims) are
+        // unaffected by this stricter check.
+        if (\WPVDB\Plugin::is_playground_demo() && count($validated_embedding) !== WPVDB_DEFAULT_EMBED_DIM) {
+            return new WP_Error('invalid_embedding_dimension', sprintf(
+                /* translators: %d is the required embedding dimension */
+                __('Demo mode requires embeddings with exactly %d dimensions.', 'wpvdb'),
+                (int) WPVDB_DEFAULT_EMBED_DIM
+            ), ['status' => 400]);
+        }
+
         // Security logging
         Security::log_security_event('vectors_request', [
             'doc_id' => $doc_id,
@@ -372,10 +385,18 @@ class REST {
             'limit' => isset($data['limit']) ? $data['limit'] : 10
         ]);
         
-        if (empty($data['query'])) {
+        // Playground demo: accept a precomputed `vector` field and bypass the
+        // text-required check, the API key check, and the embedding generation
+        // call. This is the only path that works in a no-key Blueprint where
+        // the demo UI ships preset queries with their precomputed embeddings.
+        // Gated by Plugin::is_playground_demo() so canonical sites are unchanged.
+        $is_demo                = \WPVDB\Plugin::is_playground_demo();
+        $has_provided_vector    = $is_demo && isset($data['vector']) && is_array($data['vector']);
+
+        if (!$has_provided_vector && empty($data['query'])) {
             return new \WP_Error('missing_query', __('Query text is required', 'wpvdb'), ['status' => 400]);
         }
-        
+
         // Validate and sanitize parameters
         $limit = Utils::validate_positive_int(
             isset($data['limit']) ? $data['limit'] : 10,
@@ -383,53 +404,91 @@ class REST {
             100,
             10
         );
-        
-        $text = sanitize_textarea_field($data['query']);
-        $model = isset($data['model']) ? sanitize_text_field($data['model']) : Settings::get_default_model();
+
+        // Resolve $text and the cache key seed BEFORE the cache lookup.
+        // For the vector path we also derive a cache key seed from a sha256
+        // of the (yet to be normalized) JSON so vector and text lookups stay
+        // in distinct cache slots.
+        $model              = isset($data['model']) ? sanitize_text_field($data['model']) : Settings::get_default_model();
+        $text               = isset($data['query']) ? sanitize_textarea_field($data['query']) : '';
+        $cache_key_override = null;
+        if ($has_provided_vector) {
+            $vec_json           = wp_json_encode($data['vector']);
+            $cache_key_override = 'vec:' . hash('sha256', $vec_json !== false ? $vec_json : '');
+        }
 
         // Check cache first for expensive queries
-        $cached_result = Cache::get_query_result($text, $model, $limit);
+        $cached_result = Cache::get_query_result($text, $model, $limit, $cache_key_override);
         if ($cached_result !== false) {
-            Logger::debug('Using cached query result', ['query_length' => strlen($text), 'limit' => $limit]);
+            Logger::debug('Using cached query result', [
+                'query_length' => strlen($text),
+                'limit'        => $limit,
+                'mode'         => $has_provided_vector ? 'vector' : 'text',
+            ]);
             return rest_ensure_response($cached_result);
         }
-        
+
         // Try to generate an embedding for the query
         $start_time = Logger::start_timer('query_processing');
-        
+
         try {
             global $wpdb;
             $table_name = $wpdb->prefix . 'wpvdb_embeddings';
-            
-            Logger::debug('Processing query request', ['query_length' => strlen($text), 'limit' => $limit]);
-            
-            // Determine which model to use (from settings or provided in request) 
-            $provider = isset($data['provider']) ? sanitize_text_field($data['provider']) : Settings::get_active_provider();
-            
-            Logger::debug('Using configuration', ['model' => $model, 'provider' => $provider]);
-            
-            // Get API key from settings based on provider
-            $api_key = Settings::get_api_key_for_provider($provider);
-            if (empty($api_key)) {
-                Logger::error('API key not configured', ['provider' => $provider]);
-                return new \WP_Error('missing_api_key', __('API key not configured for the selected provider', 'wpvdb'), ['status' => 400]);
+
+            Logger::debug('Processing query request', [
+                'query_length' => strlen($text),
+                'limit'        => $limit,
+                'mode'         => $has_provided_vector ? 'vector' : 'text',
+            ]);
+
+            if ($has_provided_vector) {
+                // Validate the provided vector. Without these guards,
+                // cosine_distance() below silently pads or truncates mismatched
+                // length vectors and returns garbage rankings.
+                $provided = $data['vector'];
+                if (count($provided) !== WPVDB_DEFAULT_EMBED_DIM) {
+                    return new \WP_Error('invalid_vector', sprintf(
+                        /* translators: %d is the required embedding dimension */
+                        __('Provided vector must have exactly %d dimensions.', 'wpvdb'),
+                        (int) WPVDB_DEFAULT_EMBED_DIM
+                    ), ['status' => 400]);
+                }
+                $embedding = [];
+                foreach ($provided as $v) {
+                    if (!is_numeric($v) || !is_finite((float) $v)) {
+                        return new \WP_Error('invalid_vector', __('Provided vector contains non-finite values.', 'wpvdb'), ['status' => 400]);
+                    }
+                    $embedding[] = (float) $v;
+                }
+            } else {
+                // Determine which model to use (from settings or provided in request)
+                $provider = isset($data['provider']) ? sanitize_text_field($data['provider']) : Settings::get_active_provider();
+
+                Logger::debug('Using configuration', ['model' => $model, 'provider' => $provider]);
+
+                // Get API key from settings based on provider
+                $api_key = Settings::get_api_key_for_provider($provider);
+                if (empty($api_key)) {
+                    Logger::error('API key not configured', ['provider' => $provider]);
+                    return new \WP_Error('missing_api_key', __('API key not configured for the selected provider', 'wpvdb'), ['status' => 400]);
+                }
+
+                // Get API base URL
+                $api_base = Settings::get_api_base_for_provider($provider);
+                if (empty($api_base)) {
+                    Logger::error('API base URL not configured', ['provider' => $provider]);
+                    return new \WP_Error('missing_api_base', __('API base URL not configured for the selected provider', 'wpvdb'), ['status' => 400]);
+                }
+
+                Logger::debug('Generating embedding', ['model' => $model, 'text_length' => strlen($text)]);
+
+                $embedding = Core::get_embedding($text, $model, $api_base, $api_key);
+                if (is_wp_error($embedding)) {
+                    Logger::error('Failed to generate embedding', ['error' => $embedding->get_error_message(), 'model' => $model]);
+                    return $embedding;
+                }
             }
-            
-            // Get API base URL
-            $api_base = Settings::get_api_base_for_provider($provider);
-            if (empty($api_base)) {
-                Logger::error('API base URL not configured', ['provider' => $provider]);
-                return new \WP_Error('missing_api_base', __('API base URL not configured for the selected provider', 'wpvdb'), ['status' => 400]);
-            }
-            
-            Logger::debug('Generating embedding', ['model' => $model, 'text_length' => strlen($text)]);
-            
-            $embedding = Core::get_embedding($text, $model, $api_base, $api_key);
-            if (is_wp_error($embedding)) {
-                Logger::error('Failed to generate embedding', ['error' => $embedding->get_error_message(), 'model' => $model]);
-                return $embedding;
-            }
-            
+
             Logger::debug('Embedding generated successfully', ['dimensions' => count($embedding)]);
             
             // Now we have an embedding array of floats. If we have native vector support, use it. Otherwise fallback.
@@ -595,7 +654,7 @@ class REST {
             ];
             
             // Cache the result for future requests
-            Cache::set_query_result($text, $model, $limit, $response_data);
+            Cache::set_query_result($text, $model, $limit, $response_data, $cache_key_override);
             
             // Log overall performance
             Logger::end_timer('query_processing', $start_time, [

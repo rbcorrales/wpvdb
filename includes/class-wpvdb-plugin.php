@@ -97,6 +97,24 @@ class Plugin {
     }
 
     /**
+     * Whether wpvdb is running the demo path on Playground / SQLite.
+     *
+     * Used to scope behavior changes (provided-vector bypass on /query,
+     * exact-dimension validation on /vectors, alternate demo endpoints,
+     * etc.) so canonical MariaDB / MySQL installs are unaffected.
+     *
+     * The `defined()` check is required: a bare `WPVDB_DEMO_MODE` reference
+     * would fatal when the constant is absent on canonical sites.
+     *
+     * @return bool
+     */
+    public static function is_playground_demo() {
+        return self::is_playground_or_sqlite()
+            && defined('WPVDB_DEMO_MODE')
+            && WPVDB_DEMO_MODE;
+    }
+
+    /**
      * Private constructor to prevent direct instantiation
      */
     private function __construct() {

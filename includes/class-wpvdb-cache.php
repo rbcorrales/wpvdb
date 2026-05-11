@@ -52,31 +52,38 @@ class Cache {
     }
     
     /**
-     * Get cached query result
+     * Get cached query result.
      *
-     * @param string $query_text Query text
-     * @param string $model Model used
-     * @param int $limit Result limit
+     * The optional `$key_seed_override` lets callers pass a non-text seed
+     * (preset id, vector hash) when the lookup is not driven by query text.
+     * When provided, it replaces the text hash in the cache key. Without it
+     * the behavior is unchanged (text hashed via SHA-256).
+     *
+     * @param string      $query_text         Query text (use '' when overriding the seed)
+     * @param string      $model              Model used
+     * @param int         $limit              Result limit
+     * @param string|null $key_seed_override  Alternative seed (e.g. "vec:<hash>"); null = use $query_text
      * @return array|false Query results or false if not cached
      */
-    public static function get_query_result($query_text, $model, $limit) {
-        $cache_key = self::get_query_cache_key($query_text, $model, $limit);
+    public static function get_query_result($query_text, $model, $limit, $key_seed_override = null) {
+        $cache_key = self::get_query_cache_key($query_text, $model, $limit, $key_seed_override);
         return wp_cache_get($cache_key, self::CACHE_GROUP);
     }
-    
+
     /**
-     * Cache a query result
+     * Cache a query result. Mirrors get_query_result() signature.
      *
-     * @param string $query_text Query text
-     * @param string $model Model used
-     * @param int $limit Result limit
-     * @param array $results Query results
+     * @param string      $query_text         Query text (use '' when overriding the seed)
+     * @param string      $model              Model used
+     * @param int         $limit              Result limit
+     * @param array       $results            Query results
+     * @param string|null $key_seed_override  Alternative seed; null = use $query_text
      * @return bool Success
      */
-    public static function set_query_result($query_text, $model, $limit, $results) {
-        $cache_key = self::get_query_cache_key($query_text, $model, $limit);
+    public static function set_query_result($query_text, $model, $limit, $results, $key_seed_override = null) {
+        $cache_key = self::get_query_cache_key($query_text, $model, $limit, $key_seed_override);
         $expiration = self::EXPIRATION_TIMES['query_result'];
-        
+
         return wp_cache_set($cache_key, $results, self::CACHE_GROUP, $expiration);
     }
     
@@ -179,13 +186,23 @@ class Cache {
      * @param int $limit Result limit
      * @return string Cache key
      */
-    private static function get_query_cache_key($query_text, $model, $limit) {
-        // Use hash to avoid very long cache keys
-        $query_hash = hash('sha256', $query_text);
+    private static function get_query_cache_key($query_text, $model, $limit, $key_seed_override = null) {
+        // Use hash to avoid very long cache keys. When the caller supplies an
+        // explicit seed (e.g. "vec:<sha256>"), use it instead of hashing the
+        // query text. The seed should already be a safe identifier; if it
+        // could be long we hash it for safety.
+        if ($key_seed_override !== null && $key_seed_override !== '') {
+            $seed = (string) $key_seed_override;
+            if (strlen($seed) > 64) {
+                $seed = hash('sha256', $seed);
+            }
+        } else {
+            $seed = hash('sha256', (string) $query_text);
+        }
         // Prefix with the current cache version so invalidate_query_cache()
         // orphans prior entries without needing to enumerate keys.
         $v = self::get_query_cache_version();
-        return "query_v{$v}_{$model}_{$query_hash}_{$limit}";
+        return "query_v{$v}_{$model}_{$seed}_{$limit}";
     }
     
     /**
