@@ -89,12 +89,11 @@ class Plugin {
      * @return bool
      */
     public static function is_playground_or_sqlite() {
-        if (function_exists('wpvdb_is_playground_or_sqlite')) {
-            return wpvdb_is_playground_or_sqlite();
+        if (\function_exists('wpvdb_is_playground_or_sqlite')) {
+            return \wpvdb_is_playground_or_sqlite();
         }
         return (defined('DB_ENGINE') && DB_ENGINE === 'sqlite')
-            || (defined('DATABASE_TYPE') && DATABASE_TYPE === 'sqlite')
-            || defined('SQLITE_MAIN_FILE');
+            || (defined('DATABASE_TYPE') && DATABASE_TYPE === 'sqlite');
     }
 
     /**

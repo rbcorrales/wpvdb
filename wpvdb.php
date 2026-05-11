@@ -32,6 +32,41 @@ if (!defined('WPVDB_DEFAULT_EMBED_DIM')) {
     define('WPVDB_DEFAULT_EMBED_DIM', 768);
 }
 
+/**
+ * Whether wpvdb is running on WordPress Playground or any SQLite drop in.
+ *
+ * Detection sentinel: the sqlite-database-integration drop in
+ * (wp-content/db.php, included by WordPress before plugins load) defines
+ * both `DB_ENGINE` and `DATABASE_TYPE` to `'sqlite'`. Reliable on wp-now
+ * (where the sqlite plugin lives under mu-plugins/<subdir>/ and WP does
+ * not recurse, so SQLITE_MAIN_FILE is never auto-defined) AND on
+ * production Playground (where the drop in is mounted at wp-content/db.php).
+ *
+ * `SQLITE_MAIN_FILE` is intentionally NOT a standalone signal: a MySQL site
+ * that has the sqlite-database-integration plugin installed but not active
+ * would otherwise be misdetected. The presence of `DB_ENGINE=sqlite` is the
+ * authoritative "this connection is going through SQLite" signal.
+ *
+ * Defined here (before the Composer autoloader and Action Scheduler require)
+ * so that downstream wpvdb.php file scope code can gate on it, including the
+ * future Action Scheduler bootstrap gate at line 47.
+ *
+ * Lives in the global namespace mirroring wpvdb_has_action_scheduler().
+ *
+ * @return bool
+ */
+if (!function_exists('wpvdb_is_playground_or_sqlite')) {
+    function wpvdb_is_playground_or_sqlite() {
+        if (defined('DB_ENGINE') && DB_ENGINE === 'sqlite') {
+            return true;
+        }
+        if (defined('DATABASE_TYPE') && DATABASE_TYPE === 'sqlite') {
+            return true;
+        }
+        return false;
+    }
+}
+
 // API Keys can be defined in wp-config.php for better security and environment-specific configuration
 // Example:
 // define('WPVDB_OPENAI_API_KEY', 'your-openai-api-key');
@@ -78,40 +113,6 @@ require_once WPVDB_PLUGIN_DIR . 'includes/class-wpvdb-plugin.php';
 if (!function_exists('wpvdb_has_action_scheduler')) {
     function wpvdb_has_action_scheduler() {
         return class_exists('ActionScheduler') && function_exists('as_schedule_single_action');
-    }
-}
-
-/**
- * Whether wpvdb is running on WordPress Playground or any SQLite drop in.
- *
- * Empirical detection sentinel: the sqlite-database-integration drop-in
- * (wp-content/db.php, included by WordPress before plugins load) defines
- * both `DB_ENGINE` and `DATABASE_TYPE` to `'sqlite'`. This is reliable on
- * wp-now AND production Playground regardless of whether the regular
- * plugin's `load.php` (which defines `SQLITE_MAIN_FILE`) is auto-loaded.
- * In wp-now the sqlite plugin lives under `mu-plugins/<subdir>/load.php`
- * which WP's mu-plugin loader does not recurse into, so
- * `SQLITE_MAIN_FILE` is NOT defined at plugin load time.
- * Production Playground defines `SQLITE_MAIN_FILE` via its preload; kept
- * here as a belt-and-suspenders fallback.
- *
- * Must live in the global namespace so wpvdb.php file scope and
- * Plugin::is_playground_or_sqlite() can both delegate to it.
- *
- * @return bool
- */
-if (!function_exists('wpvdb_is_playground_or_sqlite')) {
-    function wpvdb_is_playground_or_sqlite() {
-        if (defined('DB_ENGINE') && DB_ENGINE === 'sqlite') {
-            return true;
-        }
-        if (defined('DATABASE_TYPE') && DATABASE_TYPE === 'sqlite') {
-            return true;
-        }
-        if (defined('SQLITE_MAIN_FILE')) {
-            return true;
-        }
-        return false;
     }
 }
 
