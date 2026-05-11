@@ -172,14 +172,28 @@ add_filter('http_request_args', function ($args, $url) {
     if (! isset($args['headers']) || ! is_array($args['headers'])) {
         $args['headers'] = [];
     }
+    // The Service Worker parses this header with a bare `split(',')` and
+    // `includes('authorization')` against an exact lowercase token (see
+    // packages/php-wasm/web-service-worker/src/lib/fetch-with-cors-proxy.ts:70),
+    // so each entry must be lowercase with no surrounding whitespace and the
+    // join separator must be a plain comma (no space). Otherwise an earlier
+    // filter that set, for example, `cookie` would produce `cookie, authorization`
+    // which splits to [`cookie`, ` authorization`] and the SW would still strip
+    // the Authorization header because the token has a leading space.
     $existing = isset($args['headers']['X-Cors-Proxy-Allowed-Request-Headers'])
         ? (string) $args['headers']['X-Cors-Proxy-Allowed-Request-Headers']
         : '';
-    $opt_in_list = array_filter(array_map('trim', explode(',', $existing)));
+    $opt_in_list = [];
+    foreach (explode(',', $existing) as $token) {
+        $token = strtolower(trim($token));
+        if ($token !== '' && ! in_array($token, $opt_in_list, true)) {
+            $opt_in_list[] = $token;
+        }
+    }
     if (! in_array('authorization', $opt_in_list, true)) {
         $opt_in_list[] = 'authorization';
     }
-    $args['headers']['X-Cors-Proxy-Allowed-Request-Headers'] = implode(', ', $opt_in_list);
+    $args['headers']['X-Cors-Proxy-Allowed-Request-Headers'] = implode(',', $opt_in_list);
     return $args;
 }, 10, 2);
 
