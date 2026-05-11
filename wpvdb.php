@@ -81,6 +81,53 @@ if (!function_exists('wpvdb_has_action_scheduler')) {
     }
 }
 
+/**
+ * Whether wpvdb is running on WordPress Playground or any SQLite drop in.
+ *
+ * Empirical detection sentinel: the sqlite-database-integration drop-in
+ * (wp-content/db.php, included by WordPress before plugins load) defines
+ * both `DB_ENGINE` and `DATABASE_TYPE` to `'sqlite'`. This is reliable on
+ * wp-now AND production Playground regardless of whether the regular
+ * plugin's `load.php` (which defines `SQLITE_MAIN_FILE`) is auto-loaded.
+ * In wp-now the sqlite plugin lives under `mu-plugins/<subdir>/load.php`
+ * which WP's mu-plugin loader does not recurse into, so
+ * `SQLITE_MAIN_FILE` is NOT defined at plugin load time.
+ * Production Playground defines `SQLITE_MAIN_FILE` via its preload; kept
+ * here as a belt-and-suspenders fallback.
+ *
+ * Must live in the global namespace so wpvdb.php file scope and
+ * Plugin::is_playground_or_sqlite() can both delegate to it.
+ *
+ * @return bool
+ */
+if (!function_exists('wpvdb_is_playground_or_sqlite')) {
+    function wpvdb_is_playground_or_sqlite() {
+        if (defined('DB_ENGINE') && DB_ENGINE === 'sqlite') {
+            return true;
+        }
+        if (defined('DATABASE_TYPE') && DATABASE_TYPE === 'sqlite') {
+            return true;
+        }
+        if (defined('SQLITE_MAIN_FILE')) {
+            return true;
+        }
+        return false;
+    }
+}
+
+// Playground / SQLite: force the LONGTEXT JSON fallback schema before activation
+// reads `are_fallbacks_enabled()`. The filter callback is cached on first call
+// (`class-wpvdb-database.php:80-87`), so registering here, before the activation
+// hook can fire, is load bearing. Use the global `wpvdb_is_playground_or_sqlite()`
+// helper (defined above) rather than checking `SQLITE_MAIN_FILE` directly,
+// because wp-now defines only `DB_ENGINE='sqlite'` early enough for plugin load.
+add_filter('wpvdb_enable_fallbacks', function ($enabled) {
+    if (wpvdb_is_playground_or_sqlite()) {
+        return true;
+    }
+    return $enabled;
+});
+
 // Get the plugin instance
 $wpvdb_plugin = \WPVDB\Plugin::get_instance();
 

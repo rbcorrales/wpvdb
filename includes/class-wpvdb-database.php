@@ -98,13 +98,31 @@ class Database {
         global $wpdb;
 
         try {
+            // Playground / SQLite drop in: short circuit before the version probe.
+            // Two driver behaviors exist in the wild: (a) trunk reports MySQL 8.0.38
+            // and would push activation into a `VECTOR(N)` DDL that the SQLite schema
+            // builder rejects, and (b) wp-now's bundled driver returns a version that
+            // fails the regex (silent early return at activate():63). Forcing false
+            // here covers both. Pair with the `wpvdb_enable_fallbacks` filter in
+            // wpvdb.php to make activation reach `dbDelta` and create the LONGTEXT
+            // fallback schema.
+            //
+            // Use the global `wpvdb_is_playground_or_sqlite()` helper which checks
+            // `DB_ENGINE`, `DATABASE_TYPE`, and `SQLITE_MAIN_FILE` in that order.
+            // `SQLITE_MAIN_FILE` alone is unreliable on wp-now because the sqlite
+            // plugin's load.php is not auto-loaded from mu-plugins/ subdirectories.
+            if (function_exists('wpvdb_is_playground_or_sqlite') && wpvdb_is_playground_or_sqlite()) {
+                $this->has_vector_support = false;
+                return false;
+            }
+
             // If we've already determined vector support, return cached result
             if (isset($this->has_vector_support)) {
                 return $this->has_vector_support;
             }
-            
+
             $this->has_vector_support = false;
-            
+
             // First, check the database type
             $db_type = $this->get_db_type();
             
