@@ -107,10 +107,10 @@ class Database {
             // wpvdb.php to make activation reach `dbDelta` and create the LONGTEXT
             // fallback schema.
             //
-            // Use the global `wpvdb_is_playground_or_sqlite()` helper which checks
-            // `DB_ENGINE`, `DATABASE_TYPE`, and `SQLITE_MAIN_FILE` in that order.
-            // `SQLITE_MAIN_FILE` alone is unreliable on wp-now because the sqlite
-            // plugin's load.php is not auto-loaded from mu-plugins/ subdirectories.
+            // Use the global `wpvdb_is_playground_or_sqlite()` helper which
+            // checks `DB_ENGINE === 'sqlite'` and `DATABASE_TYPE === 'sqlite'`,
+            // both defined by the sqlite-database-integration drop in at
+            // wp-content/db.php before any plugin loads.
             if (\function_exists('wpvdb_is_playground_or_sqlite') && \wpvdb_is_playground_or_sqlite()) {
                 $this->has_vector_support = false;
                 return false;

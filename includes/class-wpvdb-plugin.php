@@ -78,10 +78,10 @@ class Plugin {
      * Whether wpvdb is running on WordPress Playground or a SQLite drop in.
      *
      * Delegates to the global `wpvdb_is_playground_or_sqlite()` helper defined
-     * in `wpvdb.php`, which checks `DB_ENGINE`, `DATABASE_TYPE`, and
-     * `SQLITE_MAIN_FILE` (in that order). `SQLITE_MAIN_FILE` alone is
-     * unreliable on wp-now because the sqlite plugin's `load.php` is not
-     * auto-loaded from mu-plugins/ subdirectories.
+     * in `wpvdb.php`, which checks `DB_ENGINE === 'sqlite'` and
+     * `DATABASE_TYPE === 'sqlite'`. Both are defined by the
+     * sqlite-database-integration drop in at `wp-content/db.php` before
+     * any plugin loads.
      *
      * Callers in early boot (before this class is loaded) should call the
      * global function directly.

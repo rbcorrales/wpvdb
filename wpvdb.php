@@ -49,7 +49,7 @@ if (!defined('WPVDB_DEFAULT_EMBED_DIM')) {
  *
  * Defined here (before the Composer autoloader and Action Scheduler require)
  * so that downstream wpvdb.php file scope code can gate on it, including the
- * future Action Scheduler bootstrap gate at line 47.
+ * future Action Scheduler bootstrap gate below.
  *
  * Lives in the global namespace mirroring wpvdb_has_action_scheduler().
  *
