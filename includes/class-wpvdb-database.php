@@ -415,12 +415,23 @@ class Database {
         // regex would misreport `min_required` as MySQL 8.0.32 on a connection
         // that is structurally a SQLite drop in).
         if (\function_exists('wpvdb_is_playground_or_sqlite') && \wpvdb_is_playground_or_sqlite()) {
+            // Shape matches what `admin/views/status.php` reads unconditionally
+            // (`db_type`, `db_version`, `has_vector_support`, `fallbacks_enabled`).
+            // `note` and `playground` are additive informational fields.
+            $sqlite_version = '';
+            try {
+                $sqlite_version = (string) $wpdb->get_var("SELECT sqlite_version()");
+            } catch (\Exception $e) {
+                $sqlite_version = '';
+            }
+
             return [
-                'db_type'              => 'sqlite',
-                'has_vector_support'   => false,
-                'fallbacks_enabled'    => $this->are_fallbacks_enabled(),
-                'playground'           => true,
-                'note'                 => 'Running on WordPress Playground / SQLite. Native VECTOR is unavailable; embeddings use the LONGTEXT JSON fallback.',
+                'db_type'            => 'sqlite',
+                'db_version'         => $sqlite_version !== '' ? sprintf('SQLite %s (Playground)', $sqlite_version) : 'SQLite (Playground)',
+                'has_vector_support' => false,
+                'fallbacks_enabled'  => $this->are_fallbacks_enabled(),
+                'playground'         => true,
+                'note'               => 'Running on WordPress Playground / SQLite. Native VECTOR is unavailable; embeddings use the LONGTEXT JSON fallback.',
             ];
         }
 

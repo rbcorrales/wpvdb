@@ -853,15 +853,28 @@ class REST {
      * - In debug mode, may process the queue immediately
      */
     public static function handle_reembed(WP_REST_Request $request) {
+        // Playground / SQLite: guard BEFORE any row touch. Without this, the
+        // handler would delete existing embeddings and then silently fail to
+        // enqueue (push_to_queue is a no-op on Playground), leaving the post
+        // with no embeddings and no path to recovery. Also avoids the direct
+        // as_enqueue_async_action call later in this method.
+        if (\function_exists('wpvdb_is_playground_or_sqlite') && \wpvdb_is_playground_or_sqlite()) {
+            return rest_ensure_response([
+                'success'    => false,
+                'message'    => __('Demo mode: re-embedding is disabled on WordPress Playground. Existing embeddings were not touched.', 'wpvdb'),
+                'playground' => true,
+            ]);
+        }
+
         $post_id = absint($request->get_param('post_id'));
-        
+
         if (!$post_id) {
             return rest_ensure_response([
                 'success' => false,
                 'message' => __('Invalid post ID', 'wpvdb')
             ]);
         }
-        
+
         // Get the post
         $post = get_post($post_id);
         if (!$post) {

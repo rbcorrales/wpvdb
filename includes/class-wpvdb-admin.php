@@ -1147,11 +1147,21 @@ class Admin {
      */
     public function ajax_bulk_embed() {
         check_ajax_referer('wpvdb-admin', 'nonce');
-        
+
         if (!current_user_can('manage_options')) {
             wp_send_json_error(['message' => __('Permission denied', 'wpvdb')]);
         }
-        
+
+        // Playground / SQLite: bulk embed has no working outbound embedding
+        // path yet (CORS authorization + SDK transporter swap land in later
+        // edits). Return a demo-mode response before any row touch.
+        if (\function_exists('wpvdb_is_playground_or_sqlite') && \wpvdb_is_playground_or_sqlite()) {
+            wp_send_json_error([
+                'message' => __('Demo mode: bulk embedding is disabled on WordPress Playground.', 'wpvdb'),
+                'playground' => true,
+            ]);
+        }
+
         $post_ids = isset($_POST['post_ids']) && is_array($_POST['post_ids']) ? array_map('absint', $_POST['post_ids']) : [];
         $model = isset($_POST['model']) ? sanitize_text_field($_POST['model']) : '';
         $provider = isset($_POST['provider']) ? sanitize_text_field($_POST['provider']) : 'openai';
@@ -1593,17 +1603,28 @@ class Admin {
      */
     public function ajax_reembed_post() {
         check_ajax_referer('wpvdb-admin', 'nonce');
-        
+
         if (!current_user_can('edit_posts')) {
             wp_send_json_error(['message' => __('Permission denied', 'wpvdb')]);
         }
-        
+
+        // Playground / SQLite: guard BEFORE the row delete that follows.
+        // Without this, the handler would delete existing embeddings and then
+        // silently fail to enqueue (push_to_queue is a no-op on Playground),
+        // leaving the post with no embeddings and no path to recovery.
+        if (\function_exists('wpvdb_is_playground_or_sqlite') && \wpvdb_is_playground_or_sqlite()) {
+            wp_send_json_error([
+                'message' => __('Demo mode: re-embedding is disabled on WordPress Playground. Existing embeddings were not touched.', 'wpvdb'),
+                'playground' => true,
+            ]);
+        }
+
         $post_id = isset($_POST['post_id']) ? absint($_POST['post_id']) : 0;
-        
+
         if (!$post_id) {
             wp_send_json_error(['message' => __('Invalid post ID', 'wpvdb')]);
         }
-        
+
         // Get the post
         $post = get_post($post_id);
         if (!$post) {
@@ -2004,13 +2025,28 @@ class Admin {
         if ($action !== 'wpvdb_bulk_embed') {
             return $redirect_to;
         }
-        
+
         if (!current_user_can('manage_options')) {
             return $redirect_to;
         }
-        
+
         if (empty($post_ids)) {
             return $redirect_to;
+        }
+
+        // Playground / SQLite: short-circuit. push_batch_to_queue is already a
+        // no-op here, but the as_enqueue_async_action call below would still
+        // write an AS row (AS is loaded but inert; bootstrap-skip lands in a
+        // later edit). Surface a demo-mode flag on the redirect instead.
+        if (\function_exists('wpvdb_is_playground_or_sqlite') && \wpvdb_is_playground_or_sqlite()) {
+            return add_query_arg(
+                [
+                    'wpvdb_bulk_embed' => '1',
+                    'wpvdb_demo_mode'  => '1',
+                    'processed_count'  => 0,
+                ],
+                $redirect_to
+            );
         }
         
         // Get settings

@@ -498,10 +498,14 @@ if (!array_key_exists($current_section, $sections)) {
                 ?>
                 <div class="wpvdb-diagnostics-results <?php echo isset($diagnostics['error']) ? 'has-error' : ''; ?>">
                     <h4><?php esc_html_e('Diagnostic Results', 'wpvdb'); ?></h4>
-                    
+
+                    <?php if (!empty($diagnostics['playground']) && !empty($diagnostics['note'])): ?>
+                        <p class="description"><?php echo esc_html($diagnostics['note']); ?></p>
+                    <?php endif; ?>
+
                     <ul>
                         <li><strong><?php esc_html_e('Database Type:', 'wpvdb'); ?></strong> <?php echo esc_html(ucfirst($diagnostics['db_type'])); ?></li>
-                        <li><strong><?php esc_html_e('Database Version:', 'wpvdb'); ?></strong> <?php echo esc_html($diagnostics['db_version']); ?></li>
+                        <li><strong><?php esc_html_e('Database Version:', 'wpvdb'); ?></strong> <?php echo esc_html(isset($diagnostics['db_version']) ? $diagnostics['db_version'] : ''); ?></li>
                         <li><strong><?php esc_html_e('Vector Support:', 'wpvdb'); ?></strong> 
                             <?php if ($diagnostics['has_vector_support']): ?>
                                 <span style="color:green;">✓</span>
