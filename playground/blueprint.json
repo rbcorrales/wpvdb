@@ -34,7 +34,8 @@
 				"url": "https://github.com/rbcorrales/wpvdb/archive/refs/heads/playground-demo.zip"
 			},
 			"options": {
-				"targetFolderName": "wpvdb"
+				"targetFolderName": "wpvdb",
+				"activate": false
 			}
 		},
 		{
