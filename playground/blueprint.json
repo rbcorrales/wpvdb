@@ -1,0 +1,46 @@
+{
+	"$schema": "https://playground.wordpress.net/blueprint-schema.json",
+	"meta": {
+		"title": "wpvdb demo (Playground)",
+		"description": "WordPress Vector Database, demo mode. Preloaded with sample posts and precomputed embeddings; semantic search runs through the PHP cosine fallback against the SQLite drop in. Edit 12/14/15/16 of PLAYGROUND_FEASIBILITY.md."
+	},
+	"preferredVersions": {
+		"php": "8.3",
+		"wp": "latest"
+	},
+	"phpExtensionBundles": [
+		"kitchen-sink"
+	],
+	"features": {
+		"networking": true
+	},
+	"steps": [
+		{
+			"step": "defineWpConfigConsts",
+			"consts": {
+				"SQLITE_JOURNAL_MODE": "MEMORY",
+				"WPVDB_DEMO_MODE": true
+			}
+		},
+		{
+			"step": "login",
+			"username": "admin",
+			"password": "password"
+		},
+		{
+			"step": "installPlugin",
+			"pluginData": {
+				"resource": "url",
+				"url": "https://github.com/rbcorrales/wpvdb/archive/refs/heads/playground-demo.zip"
+			}
+		},
+		{
+			"step": "activatePlugin",
+			"pluginPath": "wpvdb/wpvdb.php"
+		},
+		{
+			"step": "runPHP",
+			"code": "<?php require_once getenv('DOCUMENT_ROOT') . '/wp-content/plugins/wpvdb/playground/preload-demo.php';"
+		}
+	]
+}
