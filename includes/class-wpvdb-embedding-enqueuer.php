@@ -288,28 +288,23 @@ class Embedding_Enqueuer {
         }
 
         $upper_bound = self::snapshot_upper_bound($normalized);
-        $now = current_time('mysql');
 
-        $inserted = $wpdb->insert(
-            self::table_name(),
-            [
-                'status'         => self::STATUS_PENDING,
-                'provider'       => $provider,
-                'model'          => $model,
-                'scope_args'     => wp_json_encode($normalized),
-                'fingerprint'    => $fingerprint,
-                'last_seen_id'   => 0,
-                'upper_bound_id' => $upper_bound,
-                'scanned_count'  => 0,
-                'queued_count'   => 0,
-                'skipped_count'  => 0,
-                'lock_until'     => null,
-                'last_error'     => null,
-                'created_at'     => $now,
-                'updated_at'     => $now,
-            ],
-            ['%s', '%s', '%s', '%s', '%s', '%d', '%d', '%d', '%d', '%d', '%s', '%s', '%s', '%s']
-        );
+        // created_at + updated_at use NOW() so the timestamp column shares the
+        // DB clock that release_lock/acquire_lock use. Avoids the WP-timezone
+        // vs DB-timezone skew that a current_time('mysql') write would produce.
+        $inserted = $wpdb->query($wpdb->prepare(
+            "INSERT INTO " . self::table_name() . "
+             (status, provider, model, scope_args, fingerprint,
+              last_seen_id, upper_bound_id, scanned_count, queued_count, skipped_count,
+              lock_until, last_error, created_at, updated_at)
+             VALUES (%s, %s, %s, %s, %s, 0, %d, 0, 0, 0, NULL, NULL, NOW(), NOW())",
+            self::STATUS_PENDING,
+            $provider,
+            $model,
+            wp_json_encode($normalized),
+            $fingerprint,
+            $upper_bound
+        ));
 
         if ($inserted === false) {
             return new \WP_Error('wpvdb_enqueuer_insert_failed', $wpdb->last_error);
@@ -568,13 +563,11 @@ class Embedding_Enqueuer {
      */
     private static function record_error($job_id, $message) {
         global $wpdb;
-        $wpdb->update(
-            self::table_name(),
-            ['last_error' => $message, 'updated_at' => current_time('mysql')],
-            ['job_id' => (int) $job_id],
-            ['%s', '%s'],
-            ['%d']
-        );
+        $wpdb->query($wpdb->prepare(
+            "UPDATE " . self::table_name() . " SET last_error = %s, updated_at = NOW() WHERE job_id = %d",
+            $message,
+            (int) $job_id
+        ));
     }
 
     /**
@@ -721,20 +714,15 @@ class Embedding_Enqueuer {
      */
     public static function cancel_job($job_id) {
         global $wpdb;
-        $affected = $wpdb->update(
-            self::table_name(),
-            [
-                'status'     => self::STATUS_CANCELED,
-                'lock_token' => null,
-                'lock_until' => null,
-                'updated_at' => current_time('mysql'),
-            ],
-            ['job_id' => (int) $job_id],
-            ['%s', '%s', '%s', '%s'],
-            ['%d']
-        );
+        $affected = $wpdb->query($wpdb->prepare(
+            "UPDATE " . self::table_name() . "
+             SET status = %s, lock_token = NULL, lock_until = NULL, updated_at = NOW()
+             WHERE job_id = %d",
+            self::STATUS_CANCELED,
+            (int) $job_id
+        ));
         // Treat 0 affected rows as "not found" so callers can distinguish that
-        // from a successful cancel. $wpdb->update returns false on DB error.
+        // from a successful cancel. $wpdb->query returns false on DB error.
         return is_int($affected) && $affected > 0;
     }
 
@@ -754,13 +742,11 @@ class Embedding_Enqueuer {
         }
 
         global $wpdb;
-        $now = current_time('mysql');
         $affected = $wpdb->query($wpdb->prepare(
             "UPDATE " . self::table_name() . "
-             SET status = %s, lock_until = NULL, updated_at = %s
+             SET status = %s, lock_until = NULL, updated_at = NOW()
              WHERE job_id = %d AND status = %s",
             self::STATUS_PENDING,
-            $now,
             (int) $job_id,
             self::STATUS_PAUSED
         ));
@@ -776,14 +762,13 @@ class Embedding_Enqueuer {
      */
     private static function set_status($job_id, $status) {
         global $wpdb;
-        $now = current_time('mysql');
-        $affected = $wpdb->update(
-            self::table_name(),
-            ['status' => $status, 'updated_at' => $now],
-            ['job_id' => (int) $job_id],
-            ['%s', '%s'],
-            ['%d']
-        );
+        $affected = $wpdb->query($wpdb->prepare(
+            "UPDATE " . self::table_name() . "
+             SET status = %s, updated_at = NOW()
+             WHERE job_id = %d",
+            $status,
+            (int) $job_id
+        ));
         return $affected !== false;
     }
 }
