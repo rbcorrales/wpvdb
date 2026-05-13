@@ -170,8 +170,8 @@ class Activation {
             lock_until datetime DEFAULT NULL,
             lock_token varchar(36) DEFAULT NULL,
             last_error text DEFAULT NULL,
-            created_at datetime NOT NULL DEFAULT '0000-00-00 00:00:00',
-            updated_at datetime NOT NULL DEFAULT '0000-00-00 00:00:00',
+            created_at datetime DEFAULT NULL,
+            updated_at datetime DEFAULT NULL,
             PRIMARY KEY  (job_id),
             KEY fingerprint_status_idx (fingerprint, status),
             KEY status_idx (status)

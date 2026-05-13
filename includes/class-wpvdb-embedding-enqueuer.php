@@ -243,6 +243,17 @@ class Embedding_Enqueuer {
             return $normalized;
         }
 
+        // The enqueuer's paged self-rescheduling depends on Action Scheduler.
+        // Refuse to create a non-dry-run job if AS is unavailable, otherwise
+        // the job row would sit in 'pending' forever with no page ever firing.
+        if (empty($opts['dry_run']) && !self::action_scheduler_available()) {
+            return new \WP_Error(
+                'wpvdb_enqueuer_no_action_scheduler',
+                'Action Scheduler is not available; cannot create a re-embed job. ' .
+                'Re-activate the plugin or ensure vendor/woocommerce/action-scheduler is loaded.'
+            );
+        }
+
         list($provider, $model) = self::resolve_provider_model(
             isset($opts['provider']) ? $opts['provider'] : '',
             isset($opts['model']) ? $opts['model'] : ''
@@ -667,6 +678,19 @@ class Embedding_Enqueuer {
     }
 
     /**
+     * Whether Action Scheduler is available to drive the paged enqueue.
+     *
+     * Prefers the plugin's global helper when present, so behavior tracks the
+     * same check used by WPVDB_Queue.
+     */
+    private static function action_scheduler_available() {
+        if (function_exists('wpvdb_has_action_scheduler')) {
+            return (bool) wpvdb_has_action_scheduler();
+        }
+        return function_exists('as_schedule_single_action') && class_exists('ActionScheduler');
+    }
+
+    /**
      * Get a job row as an associative array.
      */
     public static function get_job($job_id) {
@@ -709,7 +733,9 @@ class Embedding_Enqueuer {
             ['%s', '%s', '%s', '%s'],
             ['%d']
         );
-        return $affected !== false;
+        // Treat 0 affected rows as "not found" so callers can distinguish that
+        // from a successful cancel. $wpdb->update returns false on DB error.
+        return is_int($affected) && $affected > 0;
     }
 
     /**
