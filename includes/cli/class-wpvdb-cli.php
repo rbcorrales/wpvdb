@@ -11,8 +11,6 @@ if (!defined('WP_CLI') || !WP_CLI) {
 
 /**
  * Manage wpvdb embedding jobs.
- *
- * See design/embedding-enqueuer.md.
  */
 class Embeddings_Command extends \WP_CLI_Command {
 

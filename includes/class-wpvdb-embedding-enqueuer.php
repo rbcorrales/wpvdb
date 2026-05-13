@@ -8,8 +8,6 @@ defined('ABSPATH') || exit;
  *
  * Pages through matching posts via keyset cursor, schedules embedding work
  * through the existing queue. State persists in wp_wpvdb_reindex_jobs.
- *
- * See design/embedding-enqueuer.md.
  */
 class Embedding_Enqueuer {
 
@@ -149,19 +147,32 @@ class Embedding_Enqueuer {
     }
 
     /**
-     * Resolve the active provider + model snapshot at job-creation time.
+     * Resolve the provider + model snapshot at job-creation time.
+     *
+     * When only --provider is given, the model defaults to that provider's
+     * registry default rather than the active provider's default. Otherwise
+     * we'd pair the override provider with the wrong model.
      */
     private static function resolve_provider_model($override_provider, $override_model) {
-        $provider = is_string($override_provider) && $override_provider !== ''
-            ? $override_provider
-            : Settings::get_active_provider();
+        $has_provider_override = is_string($override_provider) && $override_provider !== '';
+        $has_model_override    = is_string($override_model) && $override_model !== '';
+
+        if ($has_provider_override) {
+            $provider = $override_provider;
+        } else {
+            $provider = Settings::get_active_provider();
+        }
         if (empty($provider)) {
             $provider = 'openai';
         }
 
-        $model = is_string($override_model) && $override_model !== ''
-            ? $override_model
-            : Settings::get_default_model();
+        if ($has_model_override) {
+            $model = $override_model;
+        } elseif ($has_provider_override) {
+            $model = Models::get_default_model_for_provider($provider);
+        } else {
+            $model = Settings::get_default_model();
+        }
 
         return [(string) $provider, (string) $model];
     }
@@ -339,88 +350,116 @@ class Embedding_Enqueuer {
     }
 
     /**
-     * Acquire the per-job page lock atomically and mark status=running. Returns
-     * the job row on success, null if another worker owns it or it is no longer
-     * active.
+     * Acquire the per-job page lock atomically and mark status=running.
+     *
+     * Uses the DB clock (NOW()) for both the write and the expiry comparison so
+     * site-timezone vs DB-timezone mismatches cannot make a lock either expire
+     * instantly or stay stuck for hours. Generates a per-acquisition lock_token
+     * so release_lock can refuse stale workers whose lock has been taken over.
+     *
+     * Returns [job_row, token] on success, or null if another worker owns the
+     * page or the job is no longer in an active state.
+     *
+     * @param int $job_id
+     * @return array|null
      */
     private static function acquire_lock($job_id) {
         global $wpdb;
-        $now = current_time('mysql');
-        $lock_expiry = gmdate('Y-m-d H:i:s', time() + self::LOCK_TTL_SECONDS);
+        $token = self::generate_lock_token();
 
         $affected = $wpdb->query($wpdb->prepare(
             "UPDATE " . self::table_name() . "
-             SET lock_until = %s, status = %s, updated_at = %s
+             SET lock_token = %s,
+                 lock_until = DATE_ADD(NOW(), INTERVAL %d SECOND),
+                 status = %s,
+                 updated_at = NOW()
              WHERE job_id = %d
                AND status IN (%s, %s)
-               AND (lock_until IS NULL OR lock_until < %s)",
-            $lock_expiry,
+               AND (lock_until IS NULL OR lock_until < NOW())",
+            $token,
+            self::LOCK_TTL_SECONDS,
             self::STATUS_RUNNING,
-            $now,
             $job_id,
             self::STATUS_PENDING,
-            self::STATUS_RUNNING,
-            $now
+            self::STATUS_RUNNING
         ));
 
         if ($affected === false || $affected === 0) {
             return null;
         }
 
-        return self::get_job($job_id);
+        $job = self::get_job($job_id);
+        if (!$job) {
+            return null;
+        }
+
+        return [$job, $token];
     }
 
-    private static function release_lock($job_id, $cursor_advance = null, $scanned_delta = 0, $queued_delta = 0, $skipped_delta = 0, $finalize_status = null) {
+    /**
+     * Release the lock and apply page-result deltas only if we still own it.
+     *
+     * The WHERE guard on lock_token = %s ensures a stale worker whose lock
+     * already expired cannot overwrite the cursor or status of the new owner.
+     *
+     * @return int|false Number of rows affected, or false on DB error.
+     */
+    private static function release_lock($job_id, $token, $cursor_advance = null, $scanned_delta = 0, $queued_delta = 0, $skipped_delta = 0, $finalize_status = null) {
         global $wpdb;
-        $now = current_time('mysql');
 
         $sets = [
             'lock_until = NULL',
+            'lock_token = NULL',
             'scanned_count = scanned_count + ' . (int) $scanned_delta,
             'queued_count = queued_count + ' . (int) $queued_delta,
             'skipped_count = skipped_count + ' . (int) $skipped_delta,
-            'updated_at = %s',
+            'updated_at = NOW()',
         ];
-        $params = [$now];
+        $params = [];
 
         if ($cursor_advance !== null) {
             $sets[] = 'last_seen_id = %d';
             $params[] = (int) $cursor_advance;
         }
 
-        if ($finalize_status !== null) {
-            $sets[] = 'status = %s';
-            $params[] = $finalize_status;
-        } else {
-            $sets[] = 'status = %s';
-            $params[] = self::STATUS_PENDING;
-        }
+        $sets[] = 'status = %s';
+        $params[] = $finalize_status !== null ? $finalize_status : self::STATUS_PENDING;
 
         $params[] = (int) $job_id;
+        $params[] = (string) $token;
 
-        $sql = "UPDATE " . self::table_name() . " SET " . implode(', ', $sets) . " WHERE job_id = %d";
-        $wpdb->query($wpdb->prepare($sql, $params));
+        $sql = "UPDATE " . self::table_name() . " SET " . implode(', ', $sets) . "
+                WHERE job_id = %d AND lock_token = %s";
+
+        return $wpdb->query($wpdb->prepare($sql, $params));
+    }
+
+    private static function generate_lock_token() {
+        if (function_exists('wp_generate_uuid4')) {
+            return wp_generate_uuid4();
+        }
+        return uniqid('wpvdb_', true);
     }
 
     /**
      * AS callback: process one enqueue page for the given job.
      */
     public static function process_page($job_id) {
-        global $wpdb;
         $job_id = (int) $job_id;
         if ($job_id <= 0) {
             return;
         }
 
-        $job = self::acquire_lock($job_id);
-        if (!$job) {
+        $acquired = self::acquire_lock($job_id);
+        if (!$acquired) {
             return;
         }
+        list($job, $token) = $acquired;
 
         try {
             $args = json_decode($job['scope_args'], true);
             if (!is_array($args)) {
-                self::release_lock($job_id, null, 0, 0, 0, self::STATUS_FAILED);
+                self::release_lock($job_id, $token, null, 0, 0, 0, self::STATUS_FAILED);
                 self::record_error($job_id, 'scope_args is not valid JSON');
                 return;
             }
@@ -435,19 +474,19 @@ class Embedding_Enqueuer {
             if ($limit_total > 0) {
                 $remaining = $limit_total - $already_queued;
                 if ($remaining <= 0) {
-                    self::release_lock($job_id, $cursor, 0, 0, 0, self::STATUS_COMPLETED);
+                    self::release_lock($job_id, $token, $cursor, 0, 0, 0, self::STATUS_COMPLETED);
                     return;
                 }
                 $effective_page_size = min($page_size, $remaining);
             }
 
-            $start_time   = microtime(true);
-            $budget       = (int) apply_filters('wpvdb_enqueue_page_budget_seconds', 20);
+            $start_time = microtime(true);
+            $budget     = (int) apply_filters('wpvdb_enqueue_page_budget_seconds', 20);
 
-            $post_ids = self::fetch_page_post_ids($cursor, $upper_bound, $args, $effective_page_size);
+            $posts = self::fetch_page_posts($cursor, $upper_bound, $args, $effective_page_size);
 
-            if (empty($post_ids)) {
-                self::release_lock($job_id, $cursor, 0, 0, 0, self::STATUS_COMPLETED);
+            if (empty($posts)) {
+                self::release_lock($job_id, $token, $cursor, 0, 0, 0, self::STATUS_COMPLETED);
                 return;
             }
 
@@ -456,10 +495,10 @@ class Embedding_Enqueuer {
             $queued  = 0;
             $skipped = 0;
 
-            $skip_ids = self::compute_skip_set($post_ids, $args, $job['model']);
+            $skip_ids = self::compute_skip_set($posts, $args, $job['model']);
 
             $batch_items = [];
-            foreach ($post_ids as $pid) {
+            foreach ($posts as $pid => $ptype) {
                 if ((microtime(true) - $start_time) > $budget) {
                     break;
                 }
@@ -492,13 +531,15 @@ class Embedding_Enqueuer {
             }
 
             $finalize = $more_remaining ? self::STATUS_PENDING : self::STATUS_COMPLETED;
-            self::release_lock($job_id, $last_examined, $scanned, $queued, $skipped, $finalize);
+            $released = self::release_lock($job_id, $token, $last_examined, $scanned, $queued, $skipped, $finalize);
 
-            if ($more_remaining) {
+            // Only reschedule if we still owned the lock at release time. Otherwise
+            // another worker took over after our TTL expired and is driving the job.
+            if ($more_remaining && $released) {
                 self::schedule_next_page($job_id, 1);
             }
         } catch (\Throwable $e) {
-            self::release_lock($job_id, null, 0, 0, 0, self::STATUS_FAILED);
+            self::release_lock($job_id, $token, null, 0, 0, 0, self::STATUS_FAILED);
             self::record_error($job_id, $e->getMessage());
         }
     }
@@ -518,11 +559,15 @@ class Embedding_Enqueuer {
     }
 
     /**
-     * Page of post IDs above the cursor within the scope.
+     * Page of posts above the cursor within the scope.
      *
-     * @return int[]
+     * Returns a map [post_id => post_type] so the skip-set query can match
+     * the actual stored doc_type for each post (the queue worker writes
+     * post->post_type, not a fixed 'post' string).
+     *
+     * @return array<int, string>
      */
-    private static function fetch_page_post_ids($cursor, $upper_bound, $args, $page_size) {
+    private static function fetch_page_posts($cursor, $upper_bound, $args, $page_size) {
         global $wpdb;
 
         if ($upper_bound > 0 && $cursor >= $upper_bound) {
@@ -532,51 +577,67 @@ class Embedding_Enqueuer {
         $where = self::build_scope_where_sql($args, $params);
         $sql_params = array_merge([(int) $cursor, (int) $upper_bound], $params, [(int) $page_size]);
 
-        $sql = "SELECT ID FROM {$wpdb->posts}
+        $sql = "SELECT ID, post_type FROM {$wpdb->posts}
                 WHERE ID > %d AND ID <= %d {$where}
                 ORDER BY ID ASC
                 LIMIT %d";
 
-        $rows = $wpdb->get_col($wpdb->prepare($sql, $sql_params));
-        return array_map('intval', $rows);
+        $rows = $wpdb->get_results($wpdb->prepare($sql, $sql_params), ARRAY_A);
+        $map = [];
+        foreach ((array) $rows as $row) {
+            $map[(int) $row['ID']] = (string) $row['post_type'];
+        }
+        return $map;
     }
 
     /**
-     * For a list of post IDs, return a map [post_id => true] for posts that
-     * should be skipped due to only_missing / only_mismatched_model filters.
+     * For a page of [post_id => post_type] pairs, return a map [post_id => true]
+     * for posts that should be skipped due to only_missing or
+     * only_mismatched_model filters. Queries are grouped by post_type so the
+     * doc_type column lookup matches the value the queue worker actually wrote.
+     *
+     * @param array<int, string> $posts
      */
-    private static function compute_skip_set($post_ids, $args, $model) {
+    private static function compute_skip_set($posts, $args, $model) {
         $skip = [];
-        if (empty($post_ids)) {
+        if (empty($posts)) {
             return $skip;
         }
 
         $only_missing    = !empty($args['only_missing']);
         $only_mismatched = !empty($args['only_mismatched_model']);
-
         if (!$only_missing && !$only_mismatched) {
             return $skip;
         }
 
-        global $wpdb;
-        $placeholders = implode(',', array_fill(0, count($post_ids), '%d'));
-
-        if ($only_missing) {
-            $sql = "SELECT DISTINCT doc_id FROM " . self::embeddings_table() . "
-                    WHERE doc_id IN ({$placeholders}) AND doc_type = 'post'";
-            $present = $wpdb->get_col($wpdb->prepare($sql, $post_ids));
-            foreach ($present as $pid) {
-                $skip[(int) $pid] = true;
-            }
+        $by_type = [];
+        foreach ($posts as $pid => $ptype) {
+            $by_type[$ptype][] = (int) $pid;
         }
 
-        if ($only_mismatched) {
-            $params = array_merge($post_ids, [(string) $model]);
-            $sql = "SELECT DISTINCT doc_id FROM " . self::embeddings_table() . "
-                    WHERE doc_id IN ({$placeholders}) AND doc_type = 'post' AND model = %s";
-            $matching = $wpdb->get_col($wpdb->prepare($sql, $params));
-            foreach ($matching as $pid) {
-                $skip[(int) $pid] = true;
+        global $wpdb;
+
+        foreach ($by_type as $ptype => $ids) {
+            $placeholders = implode(',', array_fill(0, count($ids), '%d'));
+
+            if ($only_missing) {
+                $params = array_merge($ids, [(string) $ptype]);
+                $sql = "SELECT DISTINCT doc_id FROM " . self::embeddings_table() . "
+                        WHERE doc_id IN ({$placeholders}) AND doc_type = %s";
+                $present = $wpdb->get_col($wpdb->prepare($sql, $params));
+                foreach ($present as $pid) {
+                    $skip[(int) $pid] = true;
+                }
+            }
+
+            if ($only_mismatched) {
+                $params = array_merge($ids, [(string) $ptype, (string) $model]);
+                $sql = "SELECT DISTINCT doc_id FROM " . self::embeddings_table() . "
+                        WHERE doc_id IN ({$placeholders}) AND doc_type = %s AND model = %s";
+                $matching = $wpdb->get_col($wpdb->prepare($sql, $params));
+                foreach ($matching as $pid) {
+                    $skip[(int) $pid] = true;
+                }
             }
         }
 

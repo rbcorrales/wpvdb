@@ -168,6 +168,7 @@ class Activation {
             queued_count bigint(20) unsigned NOT NULL DEFAULT 0,
             skipped_count bigint(20) unsigned NOT NULL DEFAULT 0,
             lock_until datetime DEFAULT NULL,
+            lock_token varchar(36) DEFAULT NULL,
             last_error text DEFAULT NULL,
             created_at datetime NOT NULL DEFAULT '0000-00-00 00:00:00',
             updated_at datetime NOT NULL DEFAULT '0000-00-00 00:00:00',
