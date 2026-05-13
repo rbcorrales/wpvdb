@@ -45,7 +45,7 @@
 		},
 		{
 			"step": "runPHP",
-			"code": "<?php require_once getenv('DOCUMENT_ROOT') . '/wp-load.php'; require_once WP_PLUGIN_DIR . '/wpvdb/playground/preload-demo.php';"
+			"code": "<?php require_once '/wordpress/wp-load.php'; require_once WP_PLUGIN_DIR . '/wpvdb/playground/preload-demo.php';"
 		}
 	]
 }
