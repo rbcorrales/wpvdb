@@ -397,10 +397,13 @@ class Embedding_Enqueuer {
     }
 
     /**
-     * Release the lock and apply page-result deltas only if we still own it.
+     * Release the lock and apply page-result deltas only if we still own it
+     * AND the job is still in the running state.
      *
      * The WHERE guard on lock_token = %s ensures a stale worker whose lock
      * already expired cannot overwrite the cursor or status of the new owner.
+     * The additional guard on status = 'running' ensures that a cancel issued
+     * mid-page cannot be overwritten back to pending/completed by the worker.
      *
      * @return int|false Number of rows affected, or false on DB error.
      */
@@ -427,9 +430,10 @@ class Embedding_Enqueuer {
 
         $params[] = (int) $job_id;
         $params[] = (string) $token;
+        $params[] = self::STATUS_RUNNING;
 
         $sql = "UPDATE " . self::table_name() . " SET " . implode(', ', $sets) . "
-                WHERE job_id = %d AND lock_token = %s";
+                WHERE job_id = %d AND lock_token = %s AND status = %s";
 
         return $wpdb->query($wpdb->prepare($sql, $params));
     }
@@ -687,10 +691,25 @@ class Embedding_Enqueuer {
 
     /**
      * Mark a job canceled. Already-scheduled AS pages will exit early because
-     * the lock acquisition checks status.
+     * the lock acquisition checks status. Also clears the lock token and
+     * expiry so an in-flight worker cannot match its release_lock guard and
+     * overwrite the canceled status back to pending or completed.
      */
     public static function cancel_job($job_id) {
-        return self::set_status($job_id, self::STATUS_CANCELED);
+        global $wpdb;
+        $affected = $wpdb->update(
+            self::table_name(),
+            [
+                'status'     => self::STATUS_CANCELED,
+                'lock_token' => null,
+                'lock_until' => null,
+                'updated_at' => current_time('mysql'),
+            ],
+            ['job_id' => (int) $job_id],
+            ['%s', '%s', '%s', '%s'],
+            ['%d']
+        );
+        return $affected !== false;
     }
 
     /**

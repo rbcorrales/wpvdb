@@ -206,17 +206,20 @@ class WPVDB_Queue {
             return false;
         }
         
-        // Get API key
-        $api_key = Settings::get_api_key();
-        
+        // Preflight API credentials using the queued provider so a job enqueued
+        // with --provider=automattic does not fail when the active provider was
+        // later switched to something with no key configured.
+        if (is_string($provider) && $provider !== '') {
+            $api_key = Settings::get_api_key_for_provider($provider);
+        } else {
+            $api_key = Settings::get_api_key();
+        }
+
         if (empty($api_key)) {
-            Core::log_error('No API key configured', ['post_id' => $post_id]);
+            Core::log_error('No API key configured', ['post_id' => $post_id, 'provider' => $provider]);
             return false;
         }
-        
-        // Get API base
-        $api_base = Settings::get_api_base();
-        
+
         // Combine content (title + content)
         $title = !empty($post->post_title) ? $post->post_title : '';
         $content = !empty($post->post_content) ? wp_strip_all_tags($post->post_content) : '';
