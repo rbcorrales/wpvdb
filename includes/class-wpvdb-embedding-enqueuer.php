@@ -481,7 +481,10 @@ class Embedding_Enqueuer {
             }
 
             $start_time = microtime(true);
-            $budget     = (int) apply_filters('wpvdb_enqueue_page_budget_seconds', 20);
+            // Clamp the budget to >= 1s so a filter that returns 0 or a negative
+            // value cannot starve the loop and cause an infinite reschedule with
+            // no cursor progress.
+            $budget     = max(1, (int) apply_filters('wpvdb_enqueue_page_budget_seconds', 20));
 
             $posts = self::fetch_page_posts($cursor, $upper_bound, $args, $effective_page_size);
 
@@ -499,25 +502,26 @@ class Embedding_Enqueuer {
 
             $batch_items = [];
             foreach ($posts as $pid => $ptype) {
-                if ((microtime(true) - $start_time) > $budget) {
-                    break;
-                }
-
                 $pid = (int) $pid;
                 $last_examined = $pid;
                 $scanned++;
 
                 if (isset($skip_ids[$pid])) {
                     $skipped++;
-                    continue;
+                } else {
+                    $batch_items[] = [
+                        'post_id'  => $pid,
+                        'model'    => $job['model'],
+                        'provider' => $job['provider'],
+                    ];
+                    $queued++;
                 }
 
-                $batch_items[] = [
-                    'post_id'  => $pid,
-                    'model'    => $job['model'],
-                    'provider' => $job['provider'],
-                ];
-                $queued++;
+                // Budget check after processing at least one item so each page
+                // always makes forward progress, even with a tight budget.
+                if ((microtime(true) - $start_time) > $budget) {
+                    break;
+                }
             }
 
             if (!empty($batch_items)) {
