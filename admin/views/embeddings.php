@@ -62,17 +62,24 @@ $api_key = \WPVDB\Settings::get_api_key();
         </div>
         
         <div class="alignright">
+            <?php if (! \WPVDB\Plugin::is_playground_demo()): ?>
             <button id="wpvdb-bulk-embed-button" class="button button-primary">
                 <?php esc_html_e('Bulk Generate Embeddings', 'wpvdb'); ?>
             </button>
+            <?php endif; ?>
         </div>
         <br class="clear">
     </div>
     
-    <?php 
-    // Check if we have a search query
+    <?php
+    // Check if we have a search query. Force empty in demo mode so a direct
+    // URL with `?s=...` cannot re-enter the dead API-key path even though the
+    // form is hidden in the UI above.
     $search_query = isset($_GET['s']) ? sanitize_text_field($_GET['s']) : '';
-    
+    if (\WPVDB\Plugin::is_playground_demo()) {
+        $search_query = '';
+    }
+
     // If we have a search query, use the semantic search
     $search_results = [];
     if (!empty($search_query)) {
@@ -429,6 +436,7 @@ $api_key = \WPVDB\Settings::get_api_key();
         </div>
     </div>
     
+    <?php if (! \WPVDB\Plugin::is_playground_demo()): ?>
     <div id="wpvdb-bulk-embed-modal" class="wpvdb-modal" style="display:none;">
         <div class="wpvdb-modal-content">
             <span class="wpvdb-modal-close">&times;</span>
@@ -521,6 +529,7 @@ $api_key = \WPVDB\Settings::get_api_key();
             </div>
         </div>
     </div>
+    <?php endif; ?>
 </div>
 
 <style>
