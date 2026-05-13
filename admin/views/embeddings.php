@@ -44,17 +44,21 @@ $api_key = \WPVDB\Settings::get_api_key();
     
     <div class="tablenav top">
         <div class="alignleft actions">
+            <?php if (\WPVDB\Plugin::is_playground_demo()): ?>
+            <p class="description"><?php esc_html_e('Search is disabled in demo mode. Use the preset query buttons on the Dashboard.', 'wpvdb'); ?></p>
+            <?php else: ?>
             <form method="get" class="search-form">
                 <input type="hidden" name="page" value="wpvdb-embeddings">
                 <label class="screen-reader-text" for="wpvdb-semantic-search"><?php esc_html_e('Search embeddings', 'wpvdb'); ?></label>
-                <input type="search" 
+                <input type="search"
                        id="wpvdb-semantic-search"
-                       name="s" 
-                       value="<?php echo isset($_GET['s']) ? esc_attr($_GET['s']) : ''; ?>" 
+                       name="s"
+                       value="<?php echo isset($_GET['s']) ? esc_attr($_GET['s']) : ''; ?>"
                        placeholder="<?php esc_attr_e('Search embeddings...', 'wpvdb'); ?>"
                        class="regular-text">
                 <input type="submit" class="button" value="<?php esc_attr_e('Semantic Search', 'wpvdb'); ?>">
             </form>
+            <?php endif; ?>
         </div>
         
         <div class="alignright">

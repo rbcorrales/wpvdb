@@ -15,6 +15,7 @@
 	"features": {
 		"networking": true
 	},
+	"landingPage": "/wp-admin/admin.php?page=wpvdb-dashboard",
 	"steps": [
 		{
 			"step": "defineWpConfigConsts",

@@ -28,6 +28,21 @@
                 </div>
             </div>
             
+            <?php if (\WPVDB\Plugin::is_playground_demo()): ?>
+            <!-- Playground demo: preset query buttons (replaces the API-key-dependent
+                 search box). Rendered by assets/js/wpvdb-demo.js using the
+                 wpvdbDemo localized payload. -->
+            <div id="wpvdb-demo-presets" class="postbox">
+                <div class="postbox-header">
+                    <h2 class="hndle"><?php esc_html_e('Demo: try a preset query', 'wpvdb'); ?></h2>
+                </div>
+                <div class="inside">
+                    <p><?php esc_html_e('This Playground demo ships with precomputed query vectors so you can exercise the semantic search path without an API key. Pick a topic.', 'wpvdb'); ?></p>
+                    <div class="wpvdb-demo-presets__buttons"></div>
+                    <div class="wpvdb-demo-presets__results"></div>
+                </div>
+            </div>
+            <?php else: ?>
             <!-- Quick Search Widget -->
             <div class="postbox">
                 <div class="postbox-header">
@@ -38,8 +53,8 @@
                     <form method="get" action="<?php echo esc_url(admin_url('admin.php')); ?>">
                         <input type="hidden" name="page" value="wpvdb-embeddings">
                         <div class="wpvdb-search-form">
-                            <input type="search" 
-                                   name="s" 
+                            <input type="search"
+                                   name="s"
                                    placeholder="<?php esc_attr_e('Enter your search query...', 'wpvdb'); ?>"
                                    class="regular-text">
                             <button type="submit" class="button button-primary"><?php esc_html_e('Search', 'wpvdb'); ?></button>
@@ -47,7 +62,8 @@
                     </form>
                 </div>
             </div>
-            
+            <?php endif; ?>
+
             <!-- Quick Actions Widget -->
             <div class="postbox">
                 <div class="postbox-header">
@@ -65,10 +81,12 @@
                             <?php esc_html_e('Configure Settings', 'wpvdb'); ?>
                         </a>
                         
+                        <?php if (! \WPVDB\Plugin::is_playground_demo()): ?>
                         <a href="<?php echo esc_url(admin_url('admin.php?page=wpvdb-embeddings#bulk-embed')); ?>" class="button">
                             <span class="dashicons dashicons-update"></span>
                             <?php esc_html_e('Bulk Embed Content', 'wpvdb'); ?>
                         </a>
+                        <?php endif; ?>
                     </div>
                 </div>
             </div>

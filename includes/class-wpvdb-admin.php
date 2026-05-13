@@ -89,7 +89,14 @@ class Admin {
         
         // Enqueue admin assets
         add_action('admin_enqueue_scripts', [$this, 'enqueue_admin_assets']);
-        
+
+        // Playground demo UI assets. Registered as a separate callback so the
+        // dual-guard (Plugin::is_playground_demo + dashboard hook) is the only
+        // thing that controls whether the demo bundle ships, independent of
+        // the broader $is_wpvdb_page scope used by enqueue_admin_assets().
+        add_action('admin_enqueue_scripts', [$this, 'maybe_enqueue_demo_assets']);
+
+
         // Admin actions
         add_action('admin_init', [$this, 'handle_admin_actions']);
         
@@ -833,7 +840,139 @@ class Admin {
             'status' => __('Status', 'wpvdb'),
         ];
     }
-    
+
+    /**
+     * Read and normalize the preset query option.
+     *
+     * Reads `wp_options.wpvdb_demo_preset_queries` written by the Playground
+     * preloader and returns only entries that satisfy the strict shape contract:
+     * an array with non-empty string `id`, non-empty string `label`, and a
+     * `vector` that is a numeric array of exactly `WPVDB_DEFAULT_EMBED_DIM`
+     * finite floats. Malformed entries are dropped silently. Used by the demo
+     * UI on the Dashboard tab.
+     *
+     * @return array<int, array{id: string, label: string, vector: array<int, float>}>
+     */
+    public static function get_demo_presets() {
+        $raw = get_option('wpvdb_demo_preset_queries', []);
+        if (! is_array($raw)) {
+            return [];
+        }
+
+        $dim = defined('WPVDB_DEFAULT_EMBED_DIM') ? (int) WPVDB_DEFAULT_EMBED_DIM : 0;
+        if ($dim < 1) {
+            return [];
+        }
+
+        $out = [];
+        foreach ($raw as $entry) {
+            if (! is_array($entry)) {
+                continue;
+            }
+            $id = isset($entry['id']) ? (string) $entry['id'] : '';
+            $label = isset($entry['label']) ? (string) $entry['label'] : '';
+            $vector = isset($entry['vector']) && is_array($entry['vector']) ? $entry['vector'] : null;
+            if ($id === '' || $label === '' || $vector === null || count($vector) !== $dim) {
+                continue;
+            }
+            $clean = [];
+            $bad = false;
+            foreach ($vector as $value) {
+                if (! is_numeric($value) || ! is_finite((float) $value)) {
+                    $bad = true;
+                    break;
+                }
+                $clean[] = (float) $value;
+            }
+            if ($bad) {
+                continue;
+            }
+            $out[] = [
+                'id'     => $id,
+                'label'  => $label,
+                'vector' => $clean,
+            ];
+        }
+        return $out;
+    }
+
+    /**
+     * Map seeded demo `doc_id` values to `{ title, permalink }`.
+     *
+     * `/wpvdb/v1/query` does not return title or permalink, so the demo UI
+     * resolves those client-side from this localized payload. Restricted to
+     * rows in `wp_wpvdb_embeddings` under the deterministic demo model so we
+     * never leak unrelated post data into the demo UI on a misconfigured site.
+     *
+     * @return array<int, array{title: string, permalink: string}>
+     */
+    public static function get_demo_posts_by_doc_id() {
+        global $wpdb;
+        $model = 'wpvdb-demo-deterministic-' . (defined('WPVDB_DEFAULT_EMBED_DIM') ? (int) WPVDB_DEFAULT_EMBED_DIM : 0);
+        $table = $wpdb->prefix . 'wpvdb_embeddings';
+        $ids = $wpdb->get_col($wpdb->prepare("SELECT DISTINCT doc_id FROM {$table} WHERE model = %s", $model));
+        if (empty($ids)) {
+            return [];
+        }
+        $out = [];
+        foreach ($ids as $doc_id) {
+            $post_id = (int) $doc_id;
+            $post = get_post($post_id);
+            if (! $post || $post->post_status !== 'publish') {
+                continue;
+            }
+            $out[$post_id] = [
+                'title'     => get_the_title($post),
+                'permalink' => get_permalink($post) ?: '',
+            ];
+        }
+        return $out;
+    }
+
+    /**
+     * Conditionally enqueue the Playground demo UI assets.
+     *
+     * Dual-guarded: early returns unless `Plugin::is_playground_demo()` is true
+     * AND the current admin hook is the Vector DB dashboard. The demo assets
+     * MUST NOT load on canonical sites or on the Embeddings, Settings, Status,
+     * or post-edit screens, so the broad `$is_wpvdb_page` scope in
+     * `enqueue_admin_assets()` is deliberately not reused here.
+     *
+     * @param string $hook The current admin page hook.
+     */
+    public function maybe_enqueue_demo_assets($hook) {
+        if (! Plugin::is_playground_demo() || $hook !== 'toplevel_page_wpvdb-dashboard') {
+            return;
+        }
+
+        wp_enqueue_script(
+            'wpvdb-demo',
+            WPVDB_PLUGIN_URL . 'assets/js/wpvdb-demo.js',
+            [],
+            WPVDB_VERSION,
+            true
+        );
+
+        wp_localize_script('wpvdb-demo', 'wpvdbDemo', [
+            'restUrl'       => esc_url_raw(rest_url('wpvdb/v1/query')),
+            'nonce'         => wp_create_nonce('wp_rest'),
+            'presets'       => self::get_demo_presets(),
+            'postsByDocId'  => self::get_demo_posts_by_doc_id(),
+            'limit'         => 5,
+            'model'         => 'wpvdb-demo-deterministic-' . (defined('WPVDB_DEFAULT_EMBED_DIM') ? (int) WPVDB_DEFAULT_EMBED_DIM : 768),
+            'i18n'          => [
+                'tryPreset'    => __('Try one of these preset queries:', 'wpvdb'),
+                'results'      => __('Results', 'wpvdb'),
+                'document'     => __('Document', 'wpvdb'),
+                'distance'     => __('Distance', 'wpvdb'),
+                'preview'      => __('Preview', 'wpvdb'),
+                'noResults'    => __('No results.', 'wpvdb'),
+                'errorGeneric' => __('Query failed. Try again, or reload the page if the issue persists.', 'wpvdb'),
+                'errorNonce'   => __('Session expired. Reload the page to continue.', 'wpvdb'),
+            ],
+        ]);
+    }
+
     /**
      * Enqueue admin scripts and styles
      *
