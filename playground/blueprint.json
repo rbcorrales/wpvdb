@@ -2,6 +2,7 @@
 	"$schema": "https://playground.wordpress.net/blueprint-schema.json",
 	"meta": {
 		"title": "wpvdb demo (Playground)",
+		"author": "rbcorrales",
 		"description": "WordPress Vector Database, demo mode. Preloaded with sample posts and precomputed embeddings; semantic search runs through the PHP cosine fallback against the SQLite drop in. Edit 12/14/15/16 of PLAYGROUND_FEASIBILITY.md."
 	},
 	"preferredVersions": {
