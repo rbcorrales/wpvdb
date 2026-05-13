@@ -741,8 +741,18 @@ class Embedding_Enqueuer {
     /**
      * Resume a paused job by setting it back to pending and scheduling the
      * next page.
+     *
+     * @return bool|\WP_Error
      */
     public static function resume_job($job_id) {
+        if (!self::action_scheduler_available()) {
+            return new \WP_Error(
+                'wpvdb_enqueuer_no_action_scheduler',
+                'Action Scheduler is not available; cannot resume a re-embed job. ' .
+                'Re-activate the plugin or ensure vendor/woocommerce/action-scheduler is loaded.'
+            );
+        }
+
         global $wpdb;
         $now = current_time('mysql');
         $affected = $wpdb->query($wpdb->prepare(

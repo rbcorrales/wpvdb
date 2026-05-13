@@ -224,7 +224,11 @@ class Jobs_Command extends \WP_CLI_Command {
         if ($job_id <= 0) {
             \WP_CLI::error('Missing job_id argument.');
         }
-        if (Embedding_Enqueuer::resume_job($job_id)) {
+        $result = Embedding_Enqueuer::resume_job($job_id);
+        if (is_wp_error($result)) {
+            \WP_CLI::error($result->get_error_message());
+        }
+        if ($result) {
             \WP_CLI::success("Job {$job_id} resumed.");
         } else {
             \WP_CLI::error("Job {$job_id} is not in a paused state.");
