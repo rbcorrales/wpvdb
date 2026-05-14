@@ -158,8 +158,12 @@ class Query {
                 }
             } else {
                 if (defined('WP_DEBUG') && WP_DEBUG) { error_log('[WPVDB DEBUG] No vector support, using PHP fallback search'); }
-                // Fallback: do in PHP
-                $all_rows = $wpdb->get_results("SELECT doc_id, embedding FROM $table_name", ARRAY_A);
+                // Fallback: do in PHP. Filter by the active model to keep an
+                // in-flight migration from leaking old-model rows.
+                $all_rows = $wpdb->get_results(
+                    $wpdb->prepare("SELECT doc_id, embedding FROM $table_name WHERE model = %s", $model),
+                    ARRAY_A
+                );
                 $distances = [];
                 foreach ($all_rows as $r) {
                     $stored_emb = json_decode($r['embedding'], true);

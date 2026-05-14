@@ -128,14 +128,18 @@ $api_key = \WPVDB\Settings::get_api_key();
                         }
                         error_log('[WPVDB DEBUG] Using distance function: ' . $distance_function);
                         
-                        // Optimized query that will use the vector index
-                        // The ORDER BY + LIMIT pattern is what triggers the vector index usage
+                        // Optimized query that will use the vector index.
+                        // The ORDER BY + LIMIT pattern is what triggers the vector index usage.
+                        // The model filter isolates results to the active model so an in-flight
+                        // migration cannot leak old-model rows.
                         $sql = $wpdb->prepare(
-                            "SELECT e.*, 
+                            "SELECT e.*,
                             $distance_function as distance
                             FROM $table_name e
+                            WHERE e.model = %s
                             ORDER BY distance
                             LIMIT %d",
+                            $model,
                             20 // Show top 20 matches
                         );
                         
@@ -165,9 +169,14 @@ $api_key = \WPVDB\Settings::get_api_key();
                                     error_log('[WPVDB DEBUG] Basic query succeeded, returned ' . count($basic_results) . ' results');
                                     error_log('[WPVDB DEBUG] Issue is likely with the vector function: ' . $distance_function);
                                     
-                                    // Fall back to PHP-based distance calculation
+                                    // Fall back to PHP-based distance calculation.
+                                    // Filter by active model so an in-flight migration does not
+                                    // leak old-model rows into the fallback distance pass.
                                     error_log('[WPVDB DEBUG] Falling back to PHP-based distance calculation');
-                                    $all_rows = $wpdb->get_results("SELECT * FROM $table_name", ARRAY_A);
+                                    $all_rows = $wpdb->get_results(
+                                        $wpdb->prepare("SELECT * FROM $table_name WHERE model = %s", $model),
+                                        ARRAY_A
+                                    );
                                     $distances = [];
                                     
                                     foreach ($all_rows as $r) {
@@ -199,9 +208,13 @@ $api_key = \WPVDB\Settings::get_api_key();
                             }
                         }
                     } else {
-                        // Fallback: do in PHP
+                        // Fallback: do in PHP. Filter by active model so an in-flight
+                        // migration does not leak old-model rows.
                         error_log('[WPVDB DEBUG] Using PHP fallback search');
-                        $all_rows = $wpdb->get_results("SELECT * FROM $table_name", ARRAY_A);
+                        $all_rows = $wpdb->get_results(
+                            $wpdb->prepare("SELECT * FROM $table_name WHERE model = %s", $model),
+                            ARRAY_A
+                        );
                         $total_vectors_searched = count($all_rows);
                         error_log('[WPVDB DEBUG] Total vectors searched: ' . $total_vectors_searched);
                         

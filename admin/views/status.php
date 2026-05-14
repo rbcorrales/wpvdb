@@ -61,14 +61,21 @@ $active_model = isset($settings['active_model']) ? $settings['active_model'] : '
 $pending_provider = $pending_details ? $pending_details['pending_provider'] : '';
 $pending_model = $pending_details ? $pending_details['pending_model'] : '';
 
-// Find any in-flight reindex jobs to surface as a progress widget.
+// Find an in-flight reindex job that targets the currently-active provider+model.
+// A CLI-started job for an unrelated scope is intentionally ignored here so the
+// status-page widget cannot accidentally cancel work the operator did not start
+// through this UI.
 $active_reindex_job = null;
 if (class_exists('\\WPVDB\\Embedding_Enqueuer')) {
-    foreach (\WPVDB\Embedding_Enqueuer::list_jobs(10) as $job) {
-        if (in_array($job['status'], ['pending', 'running', 'paused'], true)) {
-            $active_reindex_job = $job;
-            break;
+    foreach (\WPVDB\Embedding_Enqueuer::list_jobs(20) as $job) {
+        if (!in_array($job['status'], ['pending', 'running', 'paused'], true)) {
+            continue;
         }
+        if ($job['provider'] !== $active_provider || $job['model'] !== $active_model) {
+            continue;
+        }
+        $active_reindex_job = $job;
+        break;
     }
 }
 
@@ -128,7 +135,15 @@ if (!array_key_exists($current_section, $sections)) {
 ?>
 <div class="wrap wpvdb-admin">
 
-    
+    <?php
+    // Render notices that admin handlers set via add_settings_error() and
+    // stashed in the 'settings_errors' transient. wp-admin only auto-renders
+    // these on the Settings API page; for our admin-post redirect target we
+    // call settings_errors() explicitly so the success/error messages from
+    // the apply / cancel handlers reach the user.
+    settings_errors('wpvdb_settings');
+    ?>
+
     <?php if ($has_pending_change): ?>
     <div class="notice notice-warning inline">
         <p>
