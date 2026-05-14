@@ -908,7 +908,7 @@ class Admin {
      */
     public static function get_demo_posts_by_doc_id() {
         global $wpdb;
-        $model = 'wpvdb-demo-deterministic-' . (defined('WPVDB_DEFAULT_EMBED_DIM') ? (int) WPVDB_DEFAULT_EMBED_DIM : 0);
+        $model = 'wpvdb-demo-' . (defined('WPVDB_DEFAULT_EMBED_DIM') ? (int) WPVDB_DEFAULT_EMBED_DIM : 0);
         $table = $wpdb->prefix . 'wpvdb_embeddings';
         $ids = $wpdb->get_col($wpdb->prepare("SELECT DISTINCT doc_id FROM {$table} WHERE model = %s", $model));
         if (empty($ids)) {
@@ -959,7 +959,7 @@ class Admin {
             'presets'       => self::get_demo_presets(),
             'postsByDocId'  => self::get_demo_posts_by_doc_id(),
             'limit'         => 5,
-            'model'         => 'wpvdb-demo-deterministic-' . (defined('WPVDB_DEFAULT_EMBED_DIM') ? (int) WPVDB_DEFAULT_EMBED_DIM : 768),
+            'model'         => 'wpvdb-demo-' . (defined('WPVDB_DEFAULT_EMBED_DIM') ? (int) WPVDB_DEFAULT_EMBED_DIM : 768),
             'i18n'          => [
                 'tryPreset'    => __('Try one of these preset queries:', 'wpvdb'),
                 'results'      => __('Results', 'wpvdb'),
