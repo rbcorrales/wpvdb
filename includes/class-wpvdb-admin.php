@@ -2239,6 +2239,7 @@ class Admin {
             set_transient('settings_errors', get_settings_errors(), 30);
             wp_redirect(add_query_arg([
                 'page' => 'wpvdb-status',
+                'settings-updated' => '1',
                 'cache-bust' => time(),
             ], admin_url('admin.php')));
             exit;
@@ -2312,17 +2313,26 @@ class Admin {
             wp_die('Missing job id.');
         }
 
-        // Refuse to cancel a job that is not currently active. This narrows the
-        // surface where a logged-in admin could mark a guessed historical job
-        // id as canceled, and prevents stomping completed-status rows.
+        // Refuse to cancel a job that (a) is not currently active or (b) was
+        // not started by the model-change flow. Narrows the surface where a
+        // logged-in admin could mark a guessed historical job id as canceled,
+        // prevents stomping completed-status rows, and keeps this handler from
+        // canceling CLI-started jobs that have a different scope.
         $existing = Embedding_Enqueuer::get_job($job_id);
-        if (!$existing || !in_array($existing['status'], ['pending', 'running', 'paused'], true)) {
+        $scope = $existing && isset($existing['scope_args'])
+            ? json_decode($existing['scope_args'], true)
+            : null;
+        $is_model_migration_job = is_array($scope) && !empty($scope['only_mismatched_model']);
+        if (!$existing
+            || !in_array($existing['status'], ['pending', 'running', 'paused'], true)
+            || !$is_model_migration_job
+        ) {
             add_settings_error(
                 'wpvdb_settings',
                 'reindex_job_cancel_failed',
                 sprintf(
                     /* translators: %d: job id */
-                    __('Re-embed job #%d is not active; nothing to cancel.', 'wpvdb'),
+                    __('Re-embed job #%d is not an active model-migration job; nothing to cancel from this page.', 'wpvdb'),
                     $job_id
                 ),
                 'warning'
@@ -2330,6 +2340,7 @@ class Admin {
             set_transient('settings_errors', get_settings_errors(), 30);
             wp_redirect(add_query_arg([
                 'page' => 'wpvdb-status',
+                'settings-updated' => '1',
                 'cache-bust' => time(),
             ], admin_url('admin.php')));
             exit;
@@ -2364,6 +2375,7 @@ class Admin {
 
         wp_redirect(add_query_arg([
             'page' => 'wpvdb-status',
+            'settings-updated' => '1',
             'cache-bust' => time(),
         ], admin_url('admin.php')));
         exit;

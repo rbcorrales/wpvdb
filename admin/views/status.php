@@ -61,9 +61,11 @@ $active_model = isset($settings['active_model']) ? $settings['active_model'] : '
 $pending_provider = $pending_details ? $pending_details['pending_provider'] : '';
 $pending_model = $pending_details ? $pending_details['pending_model'] : '';
 
-// Find an in-flight reindex job that targets the currently-active provider+model.
-// A CLI-started job for an unrelated scope is intentionally ignored here so the
-// status-page widget cannot accidentally cancel work the operator did not start
+// Find an in-flight reindex job that was started by the model-change flow.
+// Match: provider + model align with active settings AND scope_args has
+// only_mismatched_model === true. A CLI-started job for an unrelated scope or
+// without the mismatched-model filter is intentionally ignored so the status
+// page widget cannot accidentally cancel work the operator did not start
 // through this UI.
 $active_reindex_job = null;
 if (class_exists('\\WPVDB\\Embedding_Enqueuer')) {
@@ -72,6 +74,10 @@ if (class_exists('\\WPVDB\\Embedding_Enqueuer')) {
             continue;
         }
         if ($job['provider'] !== $active_provider || $job['model'] !== $active_model) {
+            continue;
+        }
+        $scope = json_decode(isset($job['scope_args']) ? $job['scope_args'] : '', true);
+        if (!is_array($scope) || empty($scope['only_mismatched_model'])) {
             continue;
         }
         $active_reindex_job = $job;
