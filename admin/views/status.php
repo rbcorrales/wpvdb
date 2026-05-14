@@ -61,6 +61,17 @@ $active_model = isset($settings['active_model']) ? $settings['active_model'] : '
 $pending_provider = $pending_details ? $pending_details['pending_provider'] : '';
 $pending_model = $pending_details ? $pending_details['pending_model'] : '';
 
+// Find any in-flight reindex jobs to surface as a progress widget.
+$active_reindex_job = null;
+if (class_exists('\\WPVDB\\Embedding_Enqueuer')) {
+    foreach (\WPVDB\Embedding_Enqueuer::list_jobs(10) as $job) {
+        if (in_array($job['status'], ['pending', 'running', 'paused'], true)) {
+            $active_reindex_job = $job;
+            break;
+        }
+    }
+}
+
 // Get system information 
 $system_info = [];
 $system_info['php_version'] = phpversion();
@@ -124,7 +135,7 @@ if (!array_key_exists($current_section, $sections)) {
             <strong><?php esc_html_e('Provider Change Pending', 'wpvdb'); ?></strong>
         </p>
         <p>
-            <?php esc_html_e('You have a pending change to your embedding provider or model. This change requires re-indexing all content.', 'wpvdb'); ?>
+            <?php esc_html_e('You have a pending change to your embedding provider or model. Applying it will activate the new provider and queue a background re-embed for posts whose existing rows are on the old model.', 'wpvdb'); ?>
         </p>
         <p>
             <button id="wpvdb-apply-provider-change-notice" class="button button-primary">
@@ -133,6 +144,36 @@ if (!array_key_exists($current_section, $sections)) {
             <button id="wpvdb-cancel-provider-change-notice" class="button">
                 <?php _e('Cancel Change', 'wpvdb'); ?>
             </button>
+        </p>
+    </div>
+    <?php endif; ?>
+
+    <?php if ($active_reindex_job): ?>
+    <div class="notice notice-info inline">
+        <p>
+            <strong><?php esc_html_e('Re-embed job in progress', 'wpvdb'); ?></strong>
+        </p>
+        <p>
+            <?php echo esc_html(sprintf(
+                /* translators: 1: job id, 2: status, 3: provider, 4: model, 5: scanned count, 6: queued count, 7: skipped count, 8: updated_at timestamp */
+                __('Job #%1$d (%2$s) for %3$s / %4$s. Scanned: %5$d. Queued: %6$d. Skipped: %7$d. Updated: %8$s.', 'wpvdb'),
+                (int) $active_reindex_job['job_id'],
+                $active_reindex_job['status'],
+                $active_reindex_job['provider'],
+                $active_reindex_job['model'],
+                (int) $active_reindex_job['scanned_count'],
+                (int) $active_reindex_job['queued_count'],
+                (int) $active_reindex_job['skipped_count'],
+                $active_reindex_job['updated_at']
+            )); ?>
+        </p>
+        <p>
+            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="display:inline-block;">
+                <input type="hidden" name="action" value="wpvdb_cancel_reindex_job">
+                <input type="hidden" name="job_id" value="<?php echo esc_attr((int) $active_reindex_job['job_id']); ?>">
+                <?php wp_nonce_field('wpvdb-admin'); ?>
+                <input type="submit" class="button" value="<?php esc_attr_e('Cancel job', 'wpvdb'); ?>" onclick="return confirm('<?php echo esc_js(__('Cancel the running re-embed job? Posts already re-embedded keep their new-model rows; remaining posts stay on the old model until you start a new job.', 'wpvdb')); ?>');">
+            </form>
         </p>
     </div>
     <?php endif; ?>
@@ -350,7 +391,7 @@ if (!array_key_exists($current_section, $sections)) {
                             <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="display:inline-block;">
                                 <input type="hidden" name="action" value="wpvdb_apply_provider_change">
                                 <?php wp_nonce_field('wpvdb-admin'); ?>
-                                <input type="submit" id="wpvdb-apply-provider-change-direct" class="button button-primary" value="<?php esc_attr_e('Apply Change', 'wpvdb'); ?>" onclick="return confirm('This will delete all existing embeddings and activate the new provider. Are you sure you want to continue?');">
+                                <input type="submit" id="wpvdb-apply-provider-change-direct" class="button button-primary" value="<?php esc_attr_e('Apply Change', 'wpvdb'); ?>" onclick="return confirm('<?php echo esc_js(__('This will activate the new provider and start a background re-embed job for posts on the old model. Existing rows for the old model stay in place until each post is re-processed. Continue?', 'wpvdb')); ?>');">
                             </form>
                             <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="display:inline-block; margin-left:10px;">
                                 <input type="hidden" name="action" value="wpvdb_cancel_provider_change">
@@ -367,7 +408,7 @@ if (!array_key_exists($current_section, $sections)) {
                             </button>
                         </div>
                         <p class="description">
-                            <?php _e('Applying the change will delete all existing embeddings and require re-indexing content.', 'wpvdb'); ?>
+                            <?php _e('Applying the change activates the new provider and queues a background re-embed for posts on the old model. Existing rows are not truncated; per-post replacement happens as the job drains.', 'wpvdb'); ?>
                         </p>
                     </td>
                 </tr>
@@ -460,7 +501,7 @@ if (!array_key_exists($current_section, $sections)) {
                 <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="display:inline-block;">
                     <input type="hidden" name="action" value="wpvdb_apply_provider_change">
                     <?php wp_nonce_field('wpvdb-admin'); ?>
-                    <input type="submit" id="wpvdb-apply-provider-change-direct-tool" class="button button-primary" value="<?php esc_attr_e('Apply Change', 'wpvdb'); ?>" onclick="return confirm('This will delete all existing embeddings and activate the new provider. Are you sure you want to continue?');">
+                    <input type="submit" id="wpvdb-apply-provider-change-direct-tool" class="button button-primary" value="<?php esc_attr_e('Apply Change', 'wpvdb'); ?>" onclick="return confirm('<?php echo esc_js(__('This will activate the new provider and start a background re-embed job for posts on the old model. Existing rows for the old model stay in place until each post is re-processed. Continue?', 'wpvdb')); ?>');">
                 </form>
                 <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="display:inline-block; margin-left:10px;">
                     <input type="hidden" name="action" value="wpvdb_cancel_provider_change">
@@ -477,7 +518,7 @@ if (!array_key_exists($current_section, $sections)) {
                 </button>
             </div>
             <p class="description">
-                <?php _e('Applying the change will delete all existing embeddings.', 'wpvdb'); ?>
+                <?php _e('Applying the change activates the new provider and queues a background re-embed for posts on the old model.', 'wpvdb'); ?>
             </p>
         </div>
         <?php endif; ?>
@@ -755,7 +796,7 @@ jQuery(document).ready(function($) {
                 e.stopPropagation(); // Prevent multiple handlers
                 console.log('WPVDB CRITICAL: Apply provider change button clicked directly');
                 
-                if (!confirm('This will delete all existing embeddings and activate the new provider. Are you sure you want to continue?')) {
+                if (!confirm('This will activate the new provider and start a background re-embed job for posts on the old model. Existing rows for the old model stay in place until each post is re-processed. Continue?')) {
                     return;
                 }
                 

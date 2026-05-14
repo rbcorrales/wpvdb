@@ -118,17 +118,21 @@ class Query {
                     // Lower values (0.2-0.3) are more strict but faster, higher values (0.4-0.6) give more results
                     $similarity_threshold = apply_filters('wpvdb_similarity_threshold', 0.35);
                     
-                    // Optimized query that uses the vector index with a distance threshold
-                    // The threshold + ORDER BY + LIMIT pattern is what maximizes vector index usage
+                    // Optimized query that uses the vector index with a distance threshold.
+                    // The threshold + ORDER BY + LIMIT pattern is what maximizes vector index usage.
+                    // The model filter isolates results to the active embedding model so an
+                    // in-flight model migration cannot bleed old-model rows into search.
                     $sql = $wpdb->prepare("
                         SELECT doc_id,
                             $distance_function AS distance
                         FROM $table_name
                         WHERE $distance_function < %f
+                          AND model = %s
                         ORDER BY distance
                         LIMIT %d
-                    ", 
+                    ",
                     $similarity_threshold,
+                    $model,
                     $limit * 3 // fetch more candidates than needed
                     );
                     

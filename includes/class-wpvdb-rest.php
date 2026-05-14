@@ -469,15 +469,22 @@ class REST {
                         'db_type' => $db_type
                     ]);
                     
-                    // Build the query safely
-                    $sql = "SELECT id, doc_id, chunk_id, chunk_content, summary, 
-                               {$distance_function} as distance
-                           FROM {$table_name}
-                           ORDER BY distance
-                           LIMIT " . intval($limit);
-                    
+                    // Build the query safely. The model filter isolates results
+                    // to the active embedding model so an in-flight model
+                    // migration cannot bleed old-model rows into search.
+                    $sql = $wpdb->prepare(
+                        "SELECT id, doc_id, chunk_id, chunk_content, summary,
+                            {$distance_function} as distance
+                         FROM {$table_name}
+                         WHERE model = %s
+                         ORDER BY distance
+                         LIMIT %d",
+                        $model,
+                        $limit
+                    );
+
                     Logger::debug('Executing vector query', ['limit' => $limit]);
-                    
+
                     $results = $wpdb->get_results($sql, ARRAY_A);
                     
                     if ($wpdb->last_error) {
