@@ -1061,6 +1061,17 @@ class Admin {
             $new_provider = (string) $settings['pending_provider'];
             $new_model    = (string) $settings['pending_model'];
 
+            $blocking_job = $this->get_blocking_model_migration_job($new_provider, $new_model);
+            if ($blocking_job) {
+                wp_send_json_error([
+                    'message' => $this->get_model_migration_blocked_message($blocking_job),
+                    'debug' => [
+                        'blocking_job_id' => (int) $blocking_job['job_id'],
+                    ],
+                ]);
+                return;
+            }
+
             $job = Embedding_Enqueuer::start_job(
                 ['only_mismatched_model' => true],
                 ['provider' => $new_provider, 'model' => $new_model]
@@ -2183,7 +2194,42 @@ class Admin {
             ]);
         }
     }
-    
+
+    /**
+     * Return an active migration job that would overlap a new provider change.
+     *
+     * @param string $new_provider Pending provider target.
+     * @param string $new_model Pending model target.
+     * @return array|null
+     */
+    private function get_blocking_model_migration_job($new_provider, $new_model) {
+        foreach (Embedding_Enqueuer::list_active_model_migration_jobs() as $job) {
+            if ((string) $job['provider'] === (string) $new_provider && (string) $job['model'] === (string) $new_model) {
+                continue;
+            }
+
+            return $job;
+        }
+
+        return null;
+    }
+
+    /**
+     * Build the notice used when another model migration is still active.
+     *
+     * @param array $job Active job row.
+     * @return string
+     */
+    private function get_model_migration_blocked_message($job) {
+        return sprintf(
+            /* translators: 1: job id, 2: provider, 3: model */
+            __('Cannot apply this provider change while re-embed job #%1$d for %2$s / %3$s is still active. Wait for it to finish or cancel it before applying another provider change.', 'wpvdb'),
+            (int) $job['job_id'],
+            (string) $job['provider'],
+            (string) $job['model']
+        );
+    }
+
     /**
      * Apply a pending provider/model change: flip settings and start a re-embed job.
      */
@@ -2202,6 +2248,23 @@ class Admin {
 
         $new_provider = (string) $settings['pending_provider'];
         $new_model    = (string) $settings['pending_model'];
+
+        $blocking_job = $this->get_blocking_model_migration_job($new_provider, $new_model);
+        if ($blocking_job) {
+            add_settings_error(
+                'wpvdb_settings',
+                'provider_change_reindex_active',
+                $this->get_model_migration_blocked_message($blocking_job),
+                'error'
+            );
+            set_transient('settings_errors', get_settings_errors(), 30);
+            wp_redirect(add_query_arg([
+                'page' => 'wpvdb-status',
+                'settings-updated' => '1',
+                'cache-bust' => time(),
+            ], admin_url('admin.php')));
+            exit;
+        }
 
         // Start the job first so settings stay pending on failure.
         $job = Embedding_Enqueuer::start_job(

@@ -64,20 +64,17 @@ $pending_model = $pending_details ? $pending_details['pending_model'] : '';
 // Surface only model-migration jobs started through this UI.
 $active_reindex_job = null;
 if (class_exists('\\WPVDB\\Embedding_Enqueuer')) {
-    foreach (\WPVDB\Embedding_Enqueuer::list_jobs(20) as $job) {
-        if (!in_array($job['status'], ['pending', 'running', 'paused'], true)) {
-            continue;
-        }
-        if ($job['provider'] !== $active_provider || $job['model'] !== $active_model) {
-            continue;
-        }
-        $scope = json_decode(isset($job['scope_args']) ? $job['scope_args'] : '', true);
-        if (!is_array($scope) || empty($scope['only_mismatched_model'])) {
-            continue;
-        }
-        $active_reindex_job = $job;
-        break;
-    }
+    $active_reindex_job = \WPVDB\Embedding_Enqueuer::find_active_model_migration_job($active_provider, $active_model);
+}
+
+$active_reindex_job_updated_at = '';
+if ($active_reindex_job && !empty($active_reindex_job['updated_at'])) {
+    $date_format = get_option('date_format') ?: 'Y-m-d';
+    $time_format = get_option('time_format') ?: 'H:i:s';
+    $date_time_format = trim($date_format . ' ' . $time_format);
+    $active_reindex_job_updated_at = function_exists('mysql2date')
+        ? mysql2date($date_time_format, $active_reindex_job['updated_at'])
+        : $active_reindex_job['updated_at'];
 }
 
 // Get system information 
@@ -173,7 +170,7 @@ if (!array_key_exists($current_section, $sections)) {
                 (int) $active_reindex_job['scanned_count'],
                 (int) $active_reindex_job['queued_count'],
                 (int) $active_reindex_job['skipped_count'],
-                $active_reindex_job['updated_at']
+                $active_reindex_job_updated_at
             )); ?>
         </p>
         <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin: 0 12px 12px;">
