@@ -573,6 +573,7 @@ if (!array_key_exists($current_section, $sections)) {
             ?>
         </div>
         
+        <?php if (! \WPVDB\Plugin::is_playground_demo()): ?>
         <div class="wpvdb-card">
             <h3><?php _e('Test Embedding Generation', 'wpvdb'); ?></h3>
             <p><?php _e('Test text embedding generation with your current provider.', 'wpvdb'); ?></p>
@@ -582,7 +583,7 @@ if (!array_key_exists($current_section, $sections)) {
                 </button>
             </p>
         </div>
-        
+
         <!-- Test Embedding Modal -->
         <div id="wpvdb-test-embedding-modal" class="wpvdb-modal" style="display: none;">
             <div class="wpvdb-modal-content">
@@ -640,7 +641,8 @@ if (!array_key_exists($current_section, $sections)) {
                 </div>
             </div>
         </div>
-        
+        <?php endif; ?>
+
         <?php if ($database->get_db_type() === 'mariadb' && $database->has_native_vector_support()): ?>
         <div class="wpvdb-card">
             <h3><?php _e('Vector Index Management', 'wpvdb'); ?></h3>

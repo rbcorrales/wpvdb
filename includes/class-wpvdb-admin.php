@@ -1512,9 +1512,16 @@ class Admin {
      * Register meta boxes for post edit screens
      */
     public function register_meta_boxes() {
+        // The per-post Re-embed / Generate Embeddings button on the post edit
+        // screen is a dead path in demo mode (no API key, queue is bypassed),
+        // so suppress the entire metabox rather than render a broken button.
+        if (Plugin::is_playground_demo()) {
+            return;
+        }
+
         // Get supported post types from settings
         $post_types = Settings::get_auto_embed_post_types();
-        
+
         foreach ($post_types as $post_type) {
             add_meta_box(
                 'wpvdb-embedding-status',
@@ -2142,8 +2149,16 @@ class Admin {
      * Register bulk actions for embedding posts in supported post types
      */
     public function register_bulk_embed_actions() {
+        // Hide the "Generate Embeddings" bulk action in demo mode. The handler
+        // is already gated by the Plugin::is_playground_or_sqlite() queue
+        // bypass, but leaving the dropdown option visible makes the demo look
+        // like it offers a feature it cannot deliver.
+        if (Plugin::is_playground_demo()) {
+            return;
+        }
+
         $post_types = Settings::get_auto_embed_post_types();
-        
+
         foreach ($post_types as $post_type) {
             add_filter("bulk_actions-edit-{$post_type}", [$this, 'add_bulk_embed_action']);
             add_filter("handle_bulk_actions-edit-{$post_type}", [$this, 'handle_bulk_embed_action'], 10, 3);
