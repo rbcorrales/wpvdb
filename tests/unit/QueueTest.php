@@ -49,6 +49,12 @@ class QueueTest extends TestCase {
 	}
 
 	public function test_build_item_falls_back_to_openai_when_no_active_provider() {
+		global $_wp_options;
+		$_wp_options['wpvdb_settings'] = [
+			'active_provider' => '',
+			'active_model'    => '',
+		];
+
 		$item = WPVDB_Queue::build_item( 1 );
 		$this->assertSame( 'openai', $item['provider'] );
 	}
