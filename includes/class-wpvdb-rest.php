@@ -469,9 +469,7 @@ class REST {
                         'db_type' => $db_type
                     ]);
                     
-                    // Build the query safely. The model filter isolates results
-                    // to the active embedding model so an in-flight model
-                    // migration cannot bleed old-model rows into search.
+                    // Filter by active model so a partial migration cannot leak old-model rows.
                     $sql = $wpdb->prepare(
                         "SELECT id, doc_id, chunk_id, chunk_content, summary,
                             {$distance_function} as distance
@@ -509,9 +507,7 @@ class REST {
                 $total_processed = 0;
                 
                 while (true) {
-                    // Get a batch of rows with LIMIT and OFFSET. Filter by the
-                    // active model to keep an in-flight migration from leaking
-                    // old-model rows into the PHP fallback distance pass.
+                    // Get a batch of rows with LIMIT and OFFSET
                     $batch_query = $wpdb->prepare(
                         "SELECT id, doc_id, chunk_id, chunk_content, summary, embedding
                          FROM {$table_name}

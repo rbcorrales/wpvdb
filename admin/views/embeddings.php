@@ -130,8 +130,6 @@ $api_key = \WPVDB\Settings::get_api_key();
                         
                         // Optimized query that will use the vector index.
                         // The ORDER BY + LIMIT pattern is what triggers the vector index usage.
-                        // The model filter isolates results to the active model so an in-flight
-                        // migration cannot leak old-model rows.
                         $sql = $wpdb->prepare(
                             "SELECT e.*,
                             $distance_function as distance
@@ -169,9 +167,7 @@ $api_key = \WPVDB\Settings::get_api_key();
                                     error_log('[WPVDB DEBUG] Basic query succeeded, returned ' . count($basic_results) . ' results');
                                     error_log('[WPVDB DEBUG] Issue is likely with the vector function: ' . $distance_function);
                                     
-                                    // Fall back to PHP-based distance calculation.
-                                    // Filter by active model so an in-flight migration does not
-                                    // leak old-model rows into the fallback distance pass.
+                                    // Fall back to PHP-based distance calculation
                                     error_log('[WPVDB DEBUG] Falling back to PHP-based distance calculation');
                                     $all_rows = $wpdb->get_results(
                                         $wpdb->prepare("SELECT * FROM $table_name WHERE model = %s", $model),
@@ -208,8 +204,7 @@ $api_key = \WPVDB\Settings::get_api_key();
                             }
                         }
                     } else {
-                        // Fallback: do in PHP. Filter by active model so an in-flight
-                        // migration does not leak old-model rows.
+                        // Fallback: do in PHP
                         error_log('[WPVDB DEBUG] Using PHP fallback search');
                         $all_rows = $wpdb->get_results(
                             $wpdb->prepare("SELECT * FROM $table_name WHERE model = %s", $model),

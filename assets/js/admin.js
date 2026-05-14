@@ -452,10 +452,7 @@ jQuery(document).ready(function($) {
                 console.log('%c WPVDB DEBUG: Found specific button with ID:', 'background: #f0f0f0; color: #333; font-size: 14px; padding: 5px;', $(this).attr('id'));
             });
             
-            // Unbind any existing handlers to avoid duplicates. Selector is
-            // narrowed to the legacy hidden / non-form buttons; direct submit
-            // buttons (suffix -direct, -direct-tool) live inside <form> tags
-            // posting to admin-post.php and must not be hijacked here.
+            // Legacy hidden buttons only; -direct submit forms post to admin-post.php.
             $('#wpvdb-apply-provider-change, #wpvdb-apply-provider-change-notice, #wpvdb-apply-provider-change-tool').off('click.wpvdb');
 
             // Apply Provider Change buttons

@@ -61,12 +61,7 @@ $active_model = isset($settings['active_model']) ? $settings['active_model'] : '
 $pending_provider = $pending_details ? $pending_details['pending_provider'] : '';
 $pending_model = $pending_details ? $pending_details['pending_model'] : '';
 
-// Find an in-flight reindex job that was started by the model-change flow.
-// Match: provider + model align with active settings AND scope_args has
-// only_mismatched_model === true. A CLI-started job for an unrelated scope or
-// without the mismatched-model filter is intentionally ignored so the status
-// page widget cannot accidentally cancel work the operator did not start
-// through this UI.
+// Surface only model-migration jobs started through this UI.
 $active_reindex_job = null;
 if (class_exists('\\WPVDB\\Embedding_Enqueuer')) {
     foreach (\WPVDB\Embedding_Enqueuer::list_jobs(20) as $job) {
@@ -141,14 +136,7 @@ if (!array_key_exists($current_section, $sections)) {
 ?>
 <div class="wrap wpvdb-admin">
 
-    <?php
-    // Render notices that admin handlers set via add_settings_error() and
-    // stashed in the 'settings_errors' transient. wp-admin only auto-renders
-    // these on the Settings API page; for our admin-post redirect target we
-    // call settings_errors() explicitly so the success/error messages from
-    // the apply / cancel handlers reach the user.
-    settings_errors('wpvdb_settings');
-    ?>
+    <?php settings_errors('wpvdb_settings'); ?>
 
     <?php if ($has_pending_change): ?>
     <div class="notice notice-warning inline">

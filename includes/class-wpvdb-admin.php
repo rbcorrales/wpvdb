@@ -1049,10 +1049,7 @@ class Admin {
                 ]
             ]);
         } else {
-            // User confirms the provider change. Mirror handle_apply_provider_change:
-            // start an enqueuer-driven background re-embed, then flip settings on
-            // success. Do NOT truncate the table; process_post handles per-post
-            // delete-and-replace and dense queries are model-filtered.
+            // Mirror of handle_apply_provider_change for the AJAX path.
             if (empty($settings['pending_provider']) || empty($settings['pending_model'])) {
                 if (defined('WP_DEBUG') && WP_DEBUG) { error_log('WPVDB: No pending provider change found'); }
                 wp_send_json_error([
@@ -2188,17 +2185,7 @@ class Admin {
     }
     
     /**
-     * Apply a pending provider/model change.
-     *
-     * Flips active_provider + active_model to the pending values, then starts
-     * an Embedding_Enqueuer job with only_mismatched_model=true to re-embed
-     * posts whose existing rows are for the old model. WPVDB_Queue::process_post
-     * handles per-post delete-and-replace at processing time, so no
-     * pre-truncation is needed and search results are isolated by the model
-     * filter added to the dense query paths.
-     *
-     * If start_job() fails, settings are NOT changed; the pending change stays
-     * pending so the operator can retry.
+     * Apply a pending provider/model change: flip settings and start a re-embed job.
      */
     public function handle_apply_provider_change() {
         check_admin_referer('wpvdb-admin');
@@ -2216,10 +2203,7 @@ class Admin {
         $new_provider = (string) $settings['pending_provider'];
         $new_model    = (string) $settings['pending_model'];
 
-        // Start the migration job against the new provider/model BEFORE
-        // touching settings. If the enqueuer cannot create the job (e.g.,
-        // Action Scheduler unavailable, DB write failure), leave the pending
-        // change in place so the operator can retry without losing state.
+        // Start the job first so settings stay pending on failure.
         $job = Embedding_Enqueuer::start_job(
             ['only_mismatched_model' => true],
             ['provider' => $new_provider, 'model' => $new_model]
@@ -2247,7 +2231,6 @@ class Admin {
 
         $job_id = isset($job['job_id']) ? (int) $job['job_id'] : 0;
 
-        // Flip active provider/model and clear pending.
         $settings['active_provider'] = $new_provider;
         $settings['active_model']    = $new_model;
         $settings['provider']        = $new_provider;
@@ -2265,8 +2248,7 @@ class Admin {
         delete_transient('wpvdb_settings');
         wp_cache_delete('wpvdb_settings', 'options');
 
-        // The active model just changed; cached query rows keyed by the
-        // previous model are stale even though we did not truncate the table.
+        // Active model changed; prior cached results are keyed on the old model.
         Cache::invalidate_query_cache();
 
         $notice = !empty($job['dedup'])
@@ -2293,13 +2275,11 @@ class Admin {
     }
 
     /**
-     * Cancel an in-flight reindex job started by handle_apply_provider_change.
+     * Cancel an in-flight model-migration reindex job.
      *
-     * Does NOT revert the active provider/model: process_post has already
-     * deleted old-model rows for any posts that were processed before the
-     * cancel, so a revert would leave the active model with a partially
-     * missing index. The operator can re-apply or run a fresh enqueue to
-     * resume.
+     * Why: does NOT revert active provider/model. process_post may have already
+     * deleted old-model rows for processed posts; a revert would leave the
+     * active index partially missing.
      */
     public function handle_cancel_reindex_job() {
         check_admin_referer('wpvdb-admin');
@@ -2313,11 +2293,7 @@ class Admin {
             wp_die('Missing job id.');
         }
 
-        // Refuse to cancel a job that (a) is not currently active, (b) was
-        // not started by the model-change flow, or (c) does not target the
-        // active provider + model. Mirrors the widget's selection logic in
-        // admin/views/status.php so a direct POST with a guessed job id
-        // cannot cancel an unrelated mismatched-model job.
+        // Mirror the widget filter: must be active, only_mismatched_model, and target the active provider+model.
         $existing = Embedding_Enqueuer::get_job($job_id);
         $scope = $existing && isset($existing['scope_args'])
             ? json_decode($existing['scope_args'], true)
