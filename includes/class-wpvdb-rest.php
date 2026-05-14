@@ -469,7 +469,7 @@ class REST {
                         'db_type' => $db_type
                     ]);
                     
-                    // Filter by active model so a partial migration cannot leak old-model rows.
+                    // Filter by the query model so a partial migration cannot leak rows of a different model.
                     $sql = $wpdb->prepare(
                         "SELECT id, doc_id, chunk_id, chunk_content, summary,
                             {$distance_function} as distance
