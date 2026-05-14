@@ -2313,19 +2313,26 @@ class Admin {
             wp_die('Missing job id.');
         }
 
-        // Refuse to cancel a job that (a) is not currently active or (b) was
-        // not started by the model-change flow. Narrows the surface where a
-        // logged-in admin could mark a guessed historical job id as canceled,
-        // prevents stomping completed-status rows, and keeps this handler from
-        // canceling CLI-started jobs that have a different scope.
+        // Refuse to cancel a job that (a) is not currently active, (b) was
+        // not started by the model-change flow, or (c) does not target the
+        // active provider + model. Mirrors the widget's selection logic in
+        // admin/views/status.php so a direct POST with a guessed job id
+        // cannot cancel an unrelated mismatched-model job.
         $existing = Embedding_Enqueuer::get_job($job_id);
         $scope = $existing && isset($existing['scope_args'])
             ? json_decode($existing['scope_args'], true)
             : null;
         $is_model_migration_job = is_array($scope) && !empty($scope['only_mismatched_model']);
+        $settings_for_match = get_option('wpvdb_settings', []);
+        $active_provider_for_match = isset($settings_for_match['active_provider']) ? (string) $settings_for_match['active_provider'] : '';
+        $active_model_for_match    = isset($settings_for_match['active_model']) ? (string) $settings_for_match['active_model'] : '';
+        $job_targets_active = $existing
+            && (string) $existing['provider'] === $active_provider_for_match
+            && (string) $existing['model'] === $active_model_for_match;
         if (!$existing
             || !in_array($existing['status'], ['pending', 'running', 'paused'], true)
             || !$is_model_migration_job
+            || !$job_targets_active
         ) {
             add_settings_error(
                 'wpvdb_settings',
