@@ -176,14 +176,12 @@ if (!array_key_exists($current_section, $sections)) {
                 $active_reindex_job['updated_at']
             )); ?>
         </p>
-        <p>
-            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="display:inline-block;">
-                <input type="hidden" name="action" value="wpvdb_cancel_reindex_job">
-                <input type="hidden" name="job_id" value="<?php echo esc_attr((int) $active_reindex_job['job_id']); ?>">
-                <?php wp_nonce_field('wpvdb-admin'); ?>
-                <input type="submit" class="button" value="<?php esc_attr_e('Cancel job', 'wpvdb'); ?>" onclick="return confirm('<?php echo esc_js(__('Cancel the running re-embed job? Posts already re-embedded keep their new-model rows; remaining posts stay on the old model until you start a new job.', 'wpvdb')); ?>');">
-            </form>
-        </p>
+        <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin: 0 12px 12px;">
+            <input type="hidden" name="action" value="wpvdb_cancel_reindex_job">
+            <input type="hidden" name="job_id" value="<?php echo esc_attr((int) $active_reindex_job['job_id']); ?>">
+            <?php wp_nonce_field('wpvdb-admin'); ?>
+            <input type="submit" class="button" value="<?php esc_attr_e('Cancel job', 'wpvdb'); ?>" onclick="return confirm('<?php echo esc_js(__('Cancel the running re-embed job? Posts already re-embedded keep their new-model rows; remaining posts stay on the old model until you start a new job.', 'wpvdb')); ?>');">
+        </form>
     </div>
     <?php endif; ?>
     
@@ -993,17 +991,15 @@ jQuery(document).ready(function($) {
     // Run check to see if we need to add our handlers
     checkIfHandlersExist();
 
-    // Check if we came from a settings update
+    // Strip the settings-updated and cache-bust params from the URL so a
+    // subsequent refresh does not re-trigger them. Uses replaceState rather
+    // than a full reload so admin notices rendered from the settings_errors
+    // transient (consumed on first render) remain visible.
     if (window.location.href.indexOf('settings-updated=1') > -1) {
-        console.log('WPVDB CRITICAL: Detected settings-updated parameter, forcing page reload in 1 second');
-        // Force reload once without the parameter to ensure fresh data
-        setTimeout(function() {
-            var cleanUrl = window.location.href.replace(/([&?])settings-updated=1(&|$)/, '$1');
-            cleanUrl = cleanUrl.replace(/([&?])cache-bust=[0-9]+(&|$)/, '$1');
-            // Remove trailing ? or & if present
-            cleanUrl = cleanUrl.replace(/[?&]$/, '');
-            window.location.href = cleanUrl;
-        }, 1000);
+        var cleanUrl = window.location.href.replace(/([&?])settings-updated=1(&|$)/, '$1');
+        cleanUrl = cleanUrl.replace(/([&?])cache-bust=[0-9]+(&|$)/, '$1');
+        cleanUrl = cleanUrl.replace(/[?&]$/, '');
+        window.history.replaceState(null, '', cleanUrl);
     }
 });
 </script>
