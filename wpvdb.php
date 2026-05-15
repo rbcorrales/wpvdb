@@ -131,12 +131,9 @@ add_action('plugins_loaded', function() {
     
     // If version has changed, run update procedures
     if (version_compare($current_version, WPVDB_VERSION, '<')) {
-        // Apply schema migrations (new tables, new indexes, vector index).
-        $schema_upgraded = \WPVDB\Activation::upgrade_schema();
-        if (!$schema_upgraded) {
-            return;
-        }
-
+        // Schema migrations may be skipped on unsupported databases; settings
+        // migration and the stored version bump should still run once.
+        \WPVDB\Activation::upgrade_schema();
         \WPVDB\Settings::migrate_stored_settings();
         // Update stored version
         update_option('wpvdb_version', WPVDB_VERSION);

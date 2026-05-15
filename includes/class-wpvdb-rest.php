@@ -842,6 +842,10 @@ class REST {
      * @return array|\WP_Error Normalized float vector or error.
      */
     private static function validate_provided_query_vector($vector) {
+        if (!is_array($vector)) {
+            return new \WP_Error('invalid_vector', __('Provided vector must be an array.', 'wpvdb'), ['status' => 400]);
+        }
+
         if (count($vector) !== WPVDB_DEFAULT_EMBED_DIM) {
             return new \WP_Error('invalid_vector', sprintf(
                 /* translators: %d is the required embedding dimension */
