@@ -706,7 +706,7 @@ class REST {
             ];
             
             // Cache the result for future requests. Do NOT include the
-            // request-specific `_timing` block in the cached payload.
+            // request-specific `debug` block in the cached payload.
             Cache::set_query_result($text, $model, $limit, $response_data, $cache_key_override);
 
             // Log overall performance
