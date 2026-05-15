@@ -390,14 +390,9 @@ class REST {
             $data = [];
         }
 
-        // Opt-in per-phase timing. Double-gated: an explicit `_debug` flag in
-        // the request body AND a `manage_options` cap on the caller. The
-        // `debug` response key is appended to the returned response only; it
-        // is never stored in the wpvdb query result cache. Timer state is
-        // allocated only when debug is on so the non-debug path pays zero
-        // timing overhead (route arg sanitization and wp_validate_boolean()
-        // still run unconditionally; those are not new costs from this
-        // patch).
+        // Double-gated debug timing: `_debug` flag AND `manage_options` cap.
+        // The `debug` block is appended to the returned response only; it is
+        // never stored in the wpvdb query result cache.
         $debug = wp_validate_boolean($data['_debug'] ?? false)
             && current_user_can('manage_options');
         $server_start = null;
