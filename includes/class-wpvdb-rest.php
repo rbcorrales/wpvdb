@@ -366,14 +366,16 @@ class REST {
      * - Fallback to PHP-based cosine distance calculation otherwise
      */
     public static function handle_query(\WP_REST_Request $request) {
+        $server_start = microtime(true);
+
         // Rate limiting
         $rate_check = Security::check_rate_limit('query');
         if (is_wp_error($rate_check)) {
             return $rate_check;
         }
-        
+
         self::init_database();
-        
+
         if (\wpvdb_should_log_to_error_log('debug', 'handle_query called')) {
             error_log('[WPVDB DEBUG] handle_query called');
         }
@@ -381,6 +383,19 @@ class REST {
         if (!is_array($data)) {
             $data = [];
         }
+
+        // Opt-in per-phase timing. Double-gated: an explicit `_debug` flag in
+        // the request body AND a `manage_options` cap on the caller. The
+        // `_timing` block is appended to the returned response only; it is
+        // never stored in the wpvdb query result cache.
+        $debug = !empty($data['_debug']) && current_user_can('manage_options');
+        $timing = $debug ? [
+            'embed_ms' => 0,
+            'db_ms' => 0,
+            'vector_probe_ms' => 0,
+            'cache_hit' => false,
+            'server_elapsed_ms' => 0,
+        ] : null;
         
         // Security logging
         Security::log_security_event('query_request', [
@@ -439,6 +454,13 @@ class REST {
                 'limit' => $limit,
                 'mode' => $has_provided_vector ? 'vector' : 'text',
             ]);
+            if ($debug) {
+                $response = is_array($cached_result) ? $cached_result : [];
+                $timing['cache_hit'] = true;
+                $timing['server_elapsed_ms'] = (int) round((microtime(true) - $server_start) * 1000);
+                $response['_timing'] = $timing;
+                return rest_ensure_response($response);
+            }
             return rest_ensure_response($cached_result);
         }
         
@@ -474,17 +496,25 @@ class REST {
 
                 Logger::debug('Generating embedding', ['model' => $model, 'text_length' => strlen($text)]);
 
+                $embed_start = $debug ? microtime(true) : 0.0;
                 $embedding = Core::get_embedding($text, $model, $api_base, $api_key);
+                if ($debug) {
+                    $timing['embed_ms'] = (int) round((microtime(true) - $embed_start) * 1000);
+                }
                 if (is_wp_error($embedding)) {
                     Logger::error('Failed to generate embedding', ['error' => $embedding->get_error_message(), 'model' => $model]);
                     return $embedding;
                 }
             }
-            
+
             Logger::debug('Embedding generated successfully', ['dimensions' => count($embedding)]);
-            
+
             // Now we have an embedding array of floats. If we have native vector support, use it. Otherwise fallback.
+            $probe_start = $debug ? microtime(true) : 0.0;
             $has_vector = self::$database->has_native_vector_support();
+            if ($debug) {
+                $timing['vector_probe_ms'] = (int) round((microtime(true) - $probe_start) * 1000);
+            }
             Logger::debug('Database vector support status', ['has_vector' => $has_vector]);
             $results = [];
             
@@ -534,7 +564,11 @@ class REST {
 
                     Logger::debug('Executing vector query', ['limit' => $limit]);
 
+                    $db_start = $debug ? microtime(true) : 0.0;
                     $results = $wpdb->get_results($sql, ARRAY_A);
+                    if ($debug) {
+                        $timing['db_ms'] = (int) round((microtime(true) - $db_start) * 1000);
+                    }
                     
                     if ($wpdb->last_error) {
                         Logger::error('Vector query database error', ['error' => $wpdb->last_error, 'sql' => substr($sql, 0, 200) . '...']);
@@ -652,16 +686,21 @@ class REST {
                 'query' => $has_provided_vector ? '' : $text
             ];
             
-            // Cache the result for future requests
+            // Cache the result for future requests. Do NOT include the
+            // request-specific `_timing` block in the cached payload.
             Cache::set_query_result($text, $model, $limit, $response_data, $cache_key_override);
-            
+
             // Log overall performance
             Logger::end_timer('query_processing', $start_time, [
                 'results_count' => count($results),
                 'has_vector_support' => $has_vector,
                 'query_length' => strlen($text)
             ]);
-            
+
+            if ($debug) {
+                $timing['server_elapsed_ms'] = (int) round((microtime(true) - $server_start) * 1000);
+                $response_data['_timing'] = $timing;
+            }
             return rest_ensure_response($response_data);
         } catch (\Exception $e) {
             Logger::log_exception($e, 'Unhandled query exception');
