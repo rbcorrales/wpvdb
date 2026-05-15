@@ -374,7 +374,9 @@ class REST {
         
         self::init_database();
         
-        if (defined('WP_DEBUG') && WP_DEBUG) { error_log('[WPVDB DEBUG] handle_query called'); }
+        if (\wpvdb_should_log_to_error_log('debug', 'handle_query called')) {
+            error_log('[WPVDB DEBUG] handle_query called');
+        }
         $data = $request->get_json_params();
         if (!is_array($data)) {
             $data = [];

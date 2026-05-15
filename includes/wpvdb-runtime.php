@@ -38,6 +38,21 @@ if (!function_exists('wpvdb_is_playground_runtime')) {
     }
 }
 
+/**
+ * Whether direct error_log() output is enabled for wpvdb.
+ *
+ * @param string $level Log level.
+ * @param string $message Log message.
+ * @param array  $context Additional context.
+ * @return bool
+ */
+if (!function_exists('wpvdb_should_log_to_error_log')) {
+    function wpvdb_should_log_to_error_log($level = 'debug', $message = '', $context = []) {
+        return defined('WP_DEBUG') && WP_DEBUG
+            && (bool) apply_filters('wpvdb_log_to_error_log', true, $level, $message, $context);
+    }
+}
+
 add_filter('wpvdb_enable_fallbacks', function ($enabled) {
     if (wpvdb_is_sqlite()) {
         return true;

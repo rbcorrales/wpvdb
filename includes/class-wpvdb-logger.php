@@ -158,8 +158,7 @@ class Logger {
         ];
         
         // Log to WordPress error log if debug is enabled.
-        $log_to_error_log = (bool) apply_filters('wpvdb_log_to_error_log', true, $level, $message, $context);
-        if (defined('WP_DEBUG') && WP_DEBUG && $log_to_error_log) {
+        if (\wpvdb_should_log_to_error_log($level, $message, $context)) {
             $formatted_message = sprintf(
                 '[WPVDB %s] %s %s',
                 strtoupper($level),
