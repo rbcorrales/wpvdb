@@ -86,7 +86,7 @@ $system_info['wp_debug_mode'] = defined('WP_DEBUG') && WP_DEBUG ? 'Yes' : 'No';
 
 // Database info
 global $wpdb;
-$system_info['mysql_version'] = $wpdb->get_var('SELECT VERSION()');
+$system_info['mysql_version'] = $database->get_db_version();
 
 // Plugin info
 $plugins = get_plugins();
@@ -543,10 +543,14 @@ if (!array_key_exists($current_section, $sections)) {
                 ?>
                 <div class="wpvdb-diagnostics-results <?php echo isset($diagnostics['error']) ? 'has-error' : ''; ?>">
                     <h4><?php esc_html_e('Diagnostic Results', 'wpvdb'); ?></h4>
-                    
+
+                    <?php if (!empty($diagnostics['note'])): ?>
+                        <p class="description"><?php echo esc_html($diagnostics['note']); ?></p>
+                    <?php endif; ?>
+
                     <ul>
                         <li><strong><?php esc_html_e('Database Type:', 'wpvdb'); ?></strong> <?php echo esc_html(ucfirst($diagnostics['db_type'])); ?></li>
-                        <li><strong><?php esc_html_e('Database Version:', 'wpvdb'); ?></strong> <?php echo esc_html($diagnostics['db_version']); ?></li>
+                        <li><strong><?php esc_html_e('Database Version:', 'wpvdb'); ?></strong> <?php echo esc_html(isset($diagnostics['db_version']) ? $diagnostics['db_version'] : ''); ?></li>
                         <li><strong><?php esc_html_e('Vector Support:', 'wpvdb'); ?></strong> 
                             <?php if ($diagnostics['has_vector_support']): ?>
                                 <span style="color:green;">✓</span>
@@ -614,73 +618,75 @@ if (!array_key_exists($current_section, $sections)) {
             ?>
         </div>
         
-        <div class="wpvdb-card">
-            <h3><?php _e('Test Embedding Generation', 'wpvdb'); ?></h3>
-            <p><?php _e('Test text embedding generation with your current provider.', 'wpvdb'); ?></p>
-            <p>
-                <button id="wpvdb-test-embedding-button" class="button button-primary">
-                    <?php _e('Test Embedding', 'wpvdb'); ?>
-                </button>
-            </p>
-        </div>
-        
-        <!-- Test Embedding Modal -->
-        <div id="wpvdb-test-embedding-modal" class="wpvdb-modal" style="display: none;">
-            <div class="wpvdb-modal-content">
-                <span class="wpvdb-modal-close">&times;</span>
-                <h2><?php _e('Test Text Embedding', 'wpvdb'); ?></h2>
-                
-                <form id="wpvdb-test-embedding-form">
-                    <div class="wpvdb-form-group">
-                        <label for="wpvdb-test-provider"><?php _e('Provider', 'wpvdb'); ?></label>
-                        <select id="wpvdb-test-provider" name="provider">
-                            <?php 
-                            $providers = \WPVDB\Providers::get_available_providers();
-                            foreach ($providers as $provider_id => $provider_data) {
-                                $selected = ($provider_id === $active_provider) ? 'selected' : '';
-                                echo '<option value="' . esc_attr($provider_id) . '" ' . $selected . '>' . esc_html($provider_data['label']) . '</option>';
-                            }
-                            ?>
-                        </select>
-                    </div>
-                    
-                    <div class="wpvdb-form-group">
-                        <label for="wpvdb-test-model"><?php _e('Model', 'wpvdb'); ?></label>
-                        <select id="wpvdb-test-model" name="model">
-                            <?php 
-                            $models = \WPVDB\Models::get_selectable_models();
-                            // Models are organized by provider, so we need to iterate through each provider's models
-                            foreach ($models as $provider_id => $provider_models) {
-                                echo '<optgroup label="' . esc_attr(ucfirst($provider_id)) . '">';
-                                foreach ($provider_models as $model_id => $model_data) {
-                                    $selected = ($model_id === $active_model) ? 'selected' : '';
-                                    echo '<option value="' . esc_attr($model_id) . '" ' . $selected . ' data-provider="' . esc_attr($provider_id) . '">' 
-                                        . esc_html($model_data['label']) . '</option>';
+        <?php if (apply_filters('wpvdb_render_test_embedding_ui', true)) : ?>
+            <div class="wpvdb-card">
+                <h3><?php _e('Test Embedding Generation', 'wpvdb'); ?></h3>
+                <p><?php _e('Test text embedding generation with your current provider.', 'wpvdb'); ?></p>
+                <p>
+                    <button id="wpvdb-test-embedding-button" class="button button-primary">
+                        <?php _e('Test Embedding', 'wpvdb'); ?>
+                    </button>
+                </p>
+            </div>
+
+            <!-- Test Embedding Modal -->
+            <div id="wpvdb-test-embedding-modal" class="wpvdb-modal" style="display: none;">
+                <div class="wpvdb-modal-content">
+                    <span class="wpvdb-modal-close">&times;</span>
+                    <h2><?php _e('Test Text Embedding', 'wpvdb'); ?></h2>
+
+                    <form id="wpvdb-test-embedding-form">
+                        <div class="wpvdb-form-group">
+                            <label for="wpvdb-test-provider"><?php _e('Provider', 'wpvdb'); ?></label>
+                            <select id="wpvdb-test-provider" name="provider">
+                                <?php
+                                $providers = \WPVDB\Providers::get_available_providers();
+                                foreach ($providers as $provider_id => $provider_data) {
+                                    $selected = ($provider_id === $active_provider) ? 'selected' : '';
+                                    echo '<option value="' . esc_attr($provider_id) . '" ' . $selected . '>' . esc_html($provider_data['label']) . '</option>';
                                 }
-                                echo '</optgroup>';
-                            }
-                            ?>
-                        </select>
+                                ?>
+                            </select>
+                        </div>
+
+                        <div class="wpvdb-form-group">
+                            <label for="wpvdb-test-model"><?php _e('Model', 'wpvdb'); ?></label>
+                            <select id="wpvdb-test-model" name="model">
+                                <?php
+                                $models = \WPVDB\Models::get_selectable_models();
+                                // Models are organized by provider, so we need to iterate through each provider's models
+                                foreach ($models as $provider_id => $provider_models) {
+                                    echo '<optgroup label="' . esc_attr(ucfirst($provider_id)) . '">';
+                                    foreach ($provider_models as $model_id => $model_data) {
+                                        $selected = ($model_id === $active_model) ? 'selected' : '';
+                                        echo '<option value="' . esc_attr($model_id) . '" ' . $selected . ' data-provider="' . esc_attr($provider_id) . '">'
+                                            . esc_html($model_data['label']) . '</option>';
+                                    }
+                                    echo '</optgroup>';
+                                }
+                                ?>
+                            </select>
+                        </div>
+
+                        <div class="wpvdb-form-group">
+                            <label for="wpvdb-test-text"><?php _e('Text to Embed', 'wpvdb'); ?></label>
+                            <textarea id="wpvdb-test-text" name="text" rows="5" placeholder="<?php esc_attr_e('Enter text to generate an embedding for...', 'wpvdb'); ?>"></textarea>
+                        </div>
+
+                        <div class="wpvdb-form-actions">
+                            <button type="submit" class="button button-primary"><?php _e('Generate Embedding', 'wpvdb'); ?></button>
+                            <button type="button" class="button wpvdb-modal-cancel"><?php _e('Cancel', 'wpvdb'); ?></button>
+                        </div>
+                    </form>
+
+                    <div id="wpvdb-test-embedding-results" style="display: none; margin-top: 20px;">
+                        <h3><?php _e('Results', 'wpvdb'); ?></h3>
+                        <div class="wpvdb-status-message"></div>
+                        <div class="wpvdb-embedding-info"></div>
                     </div>
-                    
-                    <div class="wpvdb-form-group">
-                        <label for="wpvdb-test-text"><?php _e('Text to Embed', 'wpvdb'); ?></label>
-                        <textarea id="wpvdb-test-text" name="text" rows="5" placeholder="<?php esc_attr_e('Enter text to generate an embedding for...', 'wpvdb'); ?>"></textarea>
-                    </div>
-                    
-                    <div class="wpvdb-form-actions">
-                        <button type="submit" class="button button-primary"><?php _e('Generate Embedding', 'wpvdb'); ?></button>
-                        <button type="button" class="button wpvdb-modal-cancel"><?php _e('Cancel', 'wpvdb'); ?></button>
-                    </div>
-                </form>
-                
-                <div id="wpvdb-test-embedding-results" style="display: none; margin-top: 20px;">
-                    <h3><?php _e('Results', 'wpvdb'); ?></h3>
-                    <div class="wpvdb-status-message"></div>
-                    <div class="wpvdb-embedding-info"></div>
                 </div>
             </div>
-        </div>
+        <?php endif; ?>
         
         <?php if ($database->get_db_type() === 'mariadb' && $database->has_native_vector_support()): ?>
         <div class="wpvdb-card">
@@ -751,6 +757,11 @@ jQuery(document).ready(function($) {
     
     // CRITICAL FIX: Create a test function to check if event handlers already exist
     function checkIfHandlersExist() {
+        if ($('#wpvdb-test-embedding-button').length === 0) {
+            attachCriticalFixHandlers();
+            return;
+        }
+
         // Set up a flag to track if the original handlers are working
         $('#wpvdb-test-embedding-button').one('click', function() {
             testButtonClicked = true;

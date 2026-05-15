@@ -16,6 +16,9 @@ class Admin {
      */
     public function __construct() {
         $this->database = new Database();
+
+        add_action('wpvdb_dashboard_widgets', [$this, 'render_dashboard_search_widget'], 10, 0);
+        add_action('wpvdb_dashboard_widgets', [$this, 'render_dashboard_quick_actions_widget'], 20, 0);
     }
 
     /**
@@ -144,8 +147,7 @@ class Admin {
         echo '<div class="notice notice-error">';
         echo '<p><strong>' . esc_html__('WordPress Vector Database requires a compatible database', 'wpvdb') . '</strong></p>';
         
-        global $wpdb;
-        $version = $wpdb->get_var('SELECT VERSION()');
+        $version = $this->database->get_db_version();
         
         echo '<p>' . sprintf(
             esc_html__('Your %1$s database (version %2$s) does not support vector columns. Please upgrade to %1$s %3$s or newer, or enable fallbacks.', 'wpvdb'),
@@ -805,6 +807,68 @@ class Admin {
         // Render admin footer
         include WPVDB_PLUGIN_DIR . 'admin/views/footer.php';
     }
+
+    /**
+     * Render the dashboard semantic search widget.
+     */
+    public function render_dashboard_search_widget() {
+        if (!apply_filters('wpvdb_render_dashboard_search_widget', true)) {
+            return;
+        }
+        ?>
+        <div class="postbox">
+            <div class="postbox-header">
+                <h2 class="hndle"><?php esc_html_e('Semantic Search', 'wpvdb'); ?></h2>
+            </div>
+            <div class="inside">
+                <p><?php esc_html_e('Search your content using AI-powered semantic search:', 'wpvdb'); ?></p>
+                <form method="get" action="<?php echo esc_url(admin_url('admin.php')); ?>">
+                    <input type="hidden" name="page" value="wpvdb-embeddings">
+                    <div class="wpvdb-search-form">
+                        <input type="search"
+                               name="s"
+                               placeholder="<?php esc_attr_e('Enter your search query...', 'wpvdb'); ?>"
+                               class="regular-text">
+                        <button type="submit" class="button button-primary"><?php esc_html_e('Search', 'wpvdb'); ?></button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        <?php
+    }
+
+    /**
+     * Render the dashboard quick actions widget.
+     */
+    public function render_dashboard_quick_actions_widget() {
+        ?>
+        <div class="postbox">
+            <div class="postbox-header">
+                <h2 class="hndle"><?php esc_html_e('Quick Actions', 'wpvdb'); ?></h2>
+            </div>
+            <div class="inside">
+                <div class="wpvdb-action-buttons">
+                    <a href="<?php echo esc_url(admin_url('admin.php?page=wpvdb-embeddings')); ?>" class="button">
+                        <span class="dashicons dashicons-database-view"></span>
+                        <?php esc_html_e('Manage Embeddings', 'wpvdb'); ?>
+                    </a>
+
+                    <a href="<?php echo esc_url(admin_url('admin.php?page=wpvdb-settings')); ?>" class="button">
+                        <span class="dashicons dashicons-admin-settings"></span>
+                        <?php esc_html_e('Configure Settings', 'wpvdb'); ?>
+                    </a>
+
+                    <?php if (apply_filters('wpvdb_render_bulk_embed_ui', true, 'dashboard')) : ?>
+                    <a href="<?php echo esc_url(admin_url('admin.php?page=wpvdb-embeddings#bulk-embed')); ?>" class="button">
+                        <span class="dashicons dashicons-update"></span>
+                        <?php esc_html_e('Bulk Embed Content', 'wpvdb'); ?>
+                    </a>
+                    <?php endif; ?>
+                </div>
+            </div>
+        </div>
+        <?php
+    }
     
     /**
      * Get the current tab from the page parameter
@@ -1165,6 +1229,13 @@ class Admin {
         if (!current_user_can('manage_options')) {
             wp_send_json_error(['message' => __('Permission denied', 'wpvdb')]);
         }
+
+        if (\wpvdb_is_playground_runtime()) {
+            wp_send_json_error([
+                'message' => __('Embedding queues are disabled in the Playground runtime. No rows were modified.', 'wpvdb'),
+                'playground_runtime' => true,
+            ]);
+        }
         
         $post_ids = isset($_POST['post_ids']) && is_array($_POST['post_ids']) ? array_map('absint', $_POST['post_ids']) : [];
         $model = isset($_POST['model']) ? sanitize_text_field($_POST['model']) : '';
@@ -1377,6 +1448,10 @@ class Admin {
         $post_types = Settings::get_auto_embed_post_types();
         
         foreach ($post_types as $post_type) {
+            if (!apply_filters('wpvdb_register_post_metabox', true, $post_type)) {
+                continue;
+            }
+
             add_meta_box(
                 'wpvdb-embedding-status',
                 __('Vector Database Embeddings', 'wpvdb'),
@@ -1607,6 +1682,13 @@ class Admin {
         if (!current_user_can('edit_posts')) {
             wp_send_json_error(['message' => __('Permission denied', 'wpvdb')]);
         }
+
+        if (\wpvdb_is_playground_runtime()) {
+            wp_send_json_error([
+                'message' => __('Re-embedding is disabled in the Playground runtime. Existing embeddings were not touched.', 'wpvdb'),
+                'playground_runtime' => true,
+            ]);
+        }
         
         $post_id = isset($_POST['post_id']) ? absint($_POST['post_id']) : 0;
         
@@ -1637,6 +1719,10 @@ class Admin {
         check_ajax_referer('wpvdb-admin', 'nonce');
         if (!current_user_can('manage_options')) {
             wp_send_json_error(['message' => __('You do not have permission to perform this action.', 'wpvdb')]);
+        }
+
+        if (\wpvdb_is_playground_runtime()) {
+            wp_send_json_error(['message' => __('Test embedding generation is disabled in the Playground runtime.', 'wpvdb')]);
         }
         
         $provider = isset($_POST['provider']) ? sanitize_text_field($_POST['provider']) : '';
@@ -1858,6 +1944,13 @@ class Admin {
         // Show notice after bulk embed action
         if (isset($_GET['wpvdb_bulk_embed']) && isset($_GET['processed_count'])) {
             $count = intval($_GET['processed_count']);
+            if (!empty($_GET['wpvdb_runtime_mode'])) {
+                echo '<div class="notice notice-warning is-dismissible"><p>';
+                esc_html_e('Embedding queues are disabled in the Playground runtime. No rows were modified.', 'wpvdb');
+                echo '</p></div>';
+                return;
+            }
+
             echo '<div class="notice notice-success is-dismissible"><p>';
             printf(
                 _n(
@@ -1926,6 +2019,10 @@ class Admin {
      * Enqueue assets for the block editor
      */
     public function enqueue_editor_assets() {
+        if (!apply_filters('wpvdb_render_editor_embedding_ui', true)) {
+            return;
+        }
+
         // Enqueue the editor plugin script
         wp_enqueue_script(
             'wpvdb-editor-row',
@@ -1951,6 +2048,10 @@ class Admin {
         $post_types = Settings::get_auto_embed_post_types();
         
         foreach ($post_types as $post_type) {
+            if (!apply_filters('wpvdb_register_bulk_actions', true, $post_type)) {
+                continue;
+            }
+
             add_filter("bulk_actions-edit-{$post_type}", [$this, 'add_bulk_embed_action']);
             add_filter("handle_bulk_actions-edit-{$post_type}", [$this, 'handle_bulk_embed_action'], 10, 3);
         }
@@ -1986,6 +2087,17 @@ class Admin {
         
         if (empty($post_ids)) {
             return $redirect_to;
+        }
+
+        if (\wpvdb_is_playground_runtime()) {
+            return add_query_arg(
+                [
+                    'wpvdb_bulk_embed'  => '1',
+                    'wpvdb_runtime_mode' => '1',
+                    'processed_count'   => 0,
+                ],
+                $redirect_to
+            );
         }
         
         // Get settings
