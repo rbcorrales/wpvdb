@@ -25,21 +25,21 @@ class Providers {
                 'label' => 'OpenAI',
                 'api_base' => 'https://api.openai.com/v1/',
                 'api_key_constant' => 'WPVDB_OPENAI_API_KEY',
-                'description' => __('OpenAI provides state-of-the-art embedding models like text-embedding-3-small.', 'wpvdb')
+                'description' => 'OpenAI provides state-of-the-art embedding models like text-embedding-3-small.'
             ],
             'automattic' => [
                 'name' => 'automattic',
                 'label' => 'Automattic AI',
                 'api_base' => self::AUTOMATTIC_AI_PROXY_API_BASE,
                 'api_key_constant' => 'WPVDB_AUTOMATTIC_API_KEY',
-                'description' => __('Automattic AI offers embedding models optimized for WordPress content.', 'wpvdb')
+                'description' => 'Automattic AI offers embedding models optimized for WordPress content.'
             ],
             'specter' => [
                 'name' => 'specter',
                 'label' => 'SPECTER',
                 'api_base' => 'http://localhost:8000/v1/',
                 'api_key_constant' => '',  // No API key needed for local server
-                'description' => __('SPECTER2 is a research model for scientific document embeddings, running locally.', 'wpvdb')
+                'description' => 'SPECTER2 is a research model for scientific document embeddings, running locally.'
             ]
         ];
         

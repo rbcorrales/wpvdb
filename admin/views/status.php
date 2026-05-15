@@ -470,6 +470,12 @@ if (!array_key_exists($current_section, $sections)) {
     
     <!-- Tools Section -->
     <div class="wpvdb-status-section" <?php echo $current_section !== 'tools' ? 'style="display: none;"' : ''; ?>>
+        <?php if (!apply_filters('wpvdb_render_status_tools_ui', true)) : ?>
+            <div class="wpvdb-card">
+                <h3><?php esc_html_e('Demo mode', 'wpvdb'); ?></h3>
+                <p><?php esc_html_e('Maintenance tools are hidden for this demo site.', 'wpvdb'); ?></p>
+            </div>
+        <?php else : ?>
         <div class="wpvdb-card">
             <h3><?php _e('Database Tables', 'wpvdb'); ?></h3>
             <p><?php _e('If you are experiencing issues with embeddings, you can recreate the database tables.', 'wpvdb'); ?></p>
@@ -617,6 +623,7 @@ if (!array_key_exists($current_section, $sections)) {
             }
             ?>
         </div>
+        <?php endif; ?>
         
         <?php if (apply_filters('wpvdb_render_test_embedding_ui', true)) : ?>
             <div class="wpvdb-card">
@@ -747,6 +754,7 @@ if (!array_key_exists($current_section, $sections)) {
 </div>
 </div><!-- .wrap --> 
 
+<?php if ($has_pending_change || apply_filters('wpvdb_render_test_embedding_ui', true)) : ?>
 <script type="text/javascript">
 jQuery(document).ready(function($) {
     console.log('WPVDB CRITICAL FIX: Direct inline JavaScript loaded');
@@ -1011,6 +1019,7 @@ jQuery(document).ready(function($) {
     }
 });
 </script>
+<?php endif; ?>
 
 <style type="text/css">
 /* Critical fix for modal styling */

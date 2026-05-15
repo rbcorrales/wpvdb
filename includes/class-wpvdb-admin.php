@@ -768,11 +768,9 @@ class Admin {
         $tab_file = WPVDB_PLUGIN_DIR . 'admin/views/' . $tab . '.php';
         if (file_exists($tab_file)) {
             // For status page, ensure scripts are loaded
-            if ($tab === 'status') {
+            if ($tab === 'status' && apply_filters('wpvdb_enqueue_admin_script', true, 'wpvdb-status')) {
                 // Ensure admin script is enqueued
                 if (!wp_script_is('wpvdb-admin', 'enqueued')) {
-                    if (defined('WP_DEBUG') && WP_DEBUG) { error_log('WPVDB: Forcing admin script enqueue for status page'); }
-                    
                     wp_enqueue_script(
                         'wpvdb-admin',
                         WPVDB_PLUGIN_URL . 'assets/js/admin.js',
@@ -908,18 +906,11 @@ class Admin {
         // More flexible approach - check if the hook contains 'wpvdb' or is a post edit screen
         $is_wpvdb_page = (strpos($hook, 'wpvdb') !== false || in_array($hook, ['toplevel_page_wpvdb-dashboard']));
         
-        // Debug - log the current hook
-        if (defined('WP_DEBUG') && WP_DEBUG) { error_log('WPVDB: Current admin page hook: ' . $hook); }
-        if (defined('WP_DEBUG') && WP_DEBUG) { error_log('WPVDB: Is wpvdb page? ' . ($is_wpvdb_page ? 'YES' : 'NO')); }
-        
         // Only load our assets on our admin pages or post edit screens
         if (!$is_wpvdb_page && $hook !== 'post.php' && $hook !== 'post-new.php') {
-            if (defined('WP_DEBUG') && WP_DEBUG) { error_log('WPVDB: Not loading assets for hook: ' . $hook); }
             return;
         }
-        
-        if (defined('WP_DEBUG') && WP_DEBUG) { error_log('WPVDB: Loading assets for hook: ' . $hook); }
-        
+
         // Core WordPress admin styles are already loaded
         
         // Enqueue custom admin styles - make these minimal and use core styles where possible
@@ -929,45 +920,48 @@ class Admin {
             [],
             WPVDB_VERSION
         );
-        
-        // Main admin script
-        wp_enqueue_script(
-            'wpvdb-admin',
-            WPVDB_PLUGIN_URL . 'assets/js/admin.js',
-            ['jquery'],
-            WPVDB_VERSION,
-            true
-        );
-        
-        // Common data for admin scripts with added vector index translations
-        wp_localize_script('wpvdb-admin', 'wpvdb', array(
-            'ajaxUrl' => admin_url('admin-ajax.php'),
-            'nonce' => wp_create_nonce('wpvdb-admin'),
-            'version' => WPVDB_VERSION,
-            'i18n' => array(
-                'confirm_delete' => __('Are you sure you want to delete this embedding?', 'wpvdb'),
-                'confirm_recreate_table' => __('This will delete and recreate the embeddings table. All existing embeddings will be lost. Are you sure you want to continue?', 'wpvdb'),
-                'error_message' => __('An error occurred. Please try again.', 'wpvdb'),
-                'success_message' => __('Operation completed successfully.', 'wpvdb'),
-                'confirm_provider_change' => __('This will activate the new provider and start a background re-embed job for posts on the old model. Existing rows for the old model stay in place until each post is re-processed. Continue?', 'wpvdb'),
-                'confirm_cancel_change' => __('This will cancel the pending provider change. Are you sure?', 'wpvdb'),
-                'no_posts_selected' => __('Please select at least one post to process.', 'wpvdb'),
-                'processing_complete' => __('Processing complete.', 'wpvdb'),
-                'confirm_reindex_all' => __('This will delete and regenerate all embeddings. Are you sure you want to continue?', 'wpvdb'),
-                'confirm_create_vector_index' => __('This will create a vector index for your embeddings table. Are you sure?', 'wpvdb'),
-                'confirm_optimize_vector_index' => __('This will optimize your vector index. It may take a moment. Continue?', 'wpvdb'),
-                'confirm_recreate_vector_index' => __('This will recreate the vector index. All existing records will be kept, but search might be temporarily slower. Are you sure?', 'wpvdb'),
-            ),
-            'strings' => array(
-                'confirmDelete' => __('Are you sure you want to delete this embedding?', 'wpvdb'),
-                'processing' => __('Processing...', 'wpvdb'),
-                'complete' => __('Complete!', 'wpvdb'),
-                'error' => __('Error:', 'wpvdb'),
-            )
-        ));
+
+        $enqueue_admin_script = (bool) apply_filters('wpvdb_enqueue_admin_script', true, $hook);
+        if ($enqueue_admin_script) {
+            // Main admin script
+            wp_enqueue_script(
+                'wpvdb-admin',
+                WPVDB_PLUGIN_URL . 'assets/js/admin.js',
+                ['jquery'],
+                WPVDB_VERSION,
+                true
+            );
+
+            // Common data for admin scripts with added vector index translations
+            wp_localize_script('wpvdb-admin', 'wpvdb', array(
+                'ajaxUrl' => admin_url('admin-ajax.php'),
+                'nonce' => wp_create_nonce('wpvdb-admin'),
+                'version' => WPVDB_VERSION,
+                'i18n' => array(
+                    'confirm_delete' => __('Are you sure you want to delete this embedding?', 'wpvdb'),
+                    'confirm_recreate_table' => __('This will delete and recreate the embeddings table. All existing embeddings will be lost. Are you sure you want to continue?', 'wpvdb'),
+                    'error_message' => __('An error occurred. Please try again.', 'wpvdb'),
+                    'success_message' => __('Operation completed successfully.', 'wpvdb'),
+                    'confirm_provider_change' => __('This will activate the new provider and start a background re-embed job for posts on the old model. Existing rows for the old model stay in place until each post is re-processed. Continue?', 'wpvdb'),
+                    'confirm_cancel_change' => __('This will cancel the pending provider change. Are you sure?', 'wpvdb'),
+                    'no_posts_selected' => __('Please select at least one post to process.', 'wpvdb'),
+                    'processing_complete' => __('Processing complete.', 'wpvdb'),
+                    'confirm_reindex_all' => __('This will delete and regenerate all embeddings. Are you sure you want to continue?', 'wpvdb'),
+                    'confirm_create_vector_index' => __('This will create a vector index for your embeddings table. Are you sure?', 'wpvdb'),
+                    'confirm_optimize_vector_index' => __('This will optimize your vector index. It may take a moment. Continue?', 'wpvdb'),
+                    'confirm_recreate_vector_index' => __('This will recreate the vector index. All existing records will be kept, but search might be temporarily slower. Are you sure?', 'wpvdb'),
+                ),
+                'strings' => array(
+                    'confirmDelete' => __('Are you sure you want to delete this embedding?', 'wpvdb'),
+                    'processing' => __('Processing...', 'wpvdb'),
+                    'complete' => __('Complete!', 'wpvdb'),
+                    'error' => __('Error:', 'wpvdb'),
+                )
+            ));
+        }
         
         // Specific page scripts
-        if ($hook === 'wpvdb_page_wpvdb-embeddings') {
+        if ($enqueue_admin_script && $hook === 'wpvdb_page_wpvdb-embeddings') {
             // Enqueue dataTables for the embeddings page
             wp_enqueue_script(
                 'wpvdb-datatables',
