@@ -67,6 +67,14 @@ class REST {
             'methods' => 'POST',
             'callback' => [__CLASS__, 'handle_query'],
             'permission_callback' => [__CLASS__, 'default_permission_check'],
+            'args' => [
+                '_debug' => [
+                    'type' => 'boolean',
+                    'sanitize_callback' => 'rest_sanitize_boolean',
+                    'default' => false,
+                    'description' => __('Return per-phase timings in a `debug` response key. Requires manage_options.', 'wpvdb'),
+                ],
+            ],
         ]);
 
         register_rest_route($namespace, '/metadata', [
@@ -366,8 +374,6 @@ class REST {
      * - Fallback to PHP-based cosine distance calculation otherwise
      */
     public static function handle_query(\WP_REST_Request $request) {
-        $server_start = microtime(true);
-
         // Rate limiting
         $rate_check = Security::check_rate_limit('query');
         if (is_wp_error($rate_check)) {
@@ -386,16 +392,24 @@ class REST {
 
         // Opt-in per-phase timing. Double-gated: an explicit `_debug` flag in
         // the request body AND a `manage_options` cap on the caller. The
-        // `_timing` block is appended to the returned response only; it is
-        // never stored in the wpvdb query result cache.
-        $debug = !empty($data['_debug']) && current_user_can('manage_options');
-        $timing = $debug ? [
-            'embed_ms' => 0,
-            'db_ms' => 0,
-            'vector_probe_ms' => 0,
-            'cache_hit' => false,
-            'server_elapsed_ms' => 0,
-        ] : null;
+        // `debug` response key is appended to the returned response only; it
+        // is never stored in the wpvdb query result cache. Timer state is
+        // allocated only when debug is on so the non-debug path pays zero
+        // overhead.
+        $debug = wp_validate_boolean($data['_debug'] ?? false)
+            && current_user_can('manage_options');
+        $server_start = null;
+        $timing = null;
+        if ($debug) {
+            $server_start = microtime(true);
+            $timing = [
+                'embed_ms' => 0,
+                'db_ms' => 0,
+                'vector_probe_ms' => 0,
+                'cache_hit' => false,
+                'server_elapsed_ms' => 0,
+            ];
+        }
         
         // Security logging
         Security::log_security_event('query_request', [
@@ -455,10 +469,10 @@ class REST {
                 'mode' => $has_provided_vector ? 'vector' : 'text',
             ]);
             if ($debug) {
-                $response = is_array($cached_result) ? $cached_result : [];
                 $timing['cache_hit'] = true;
                 $timing['server_elapsed_ms'] = (int) round((microtime(true) - $server_start) * 1000);
-                $response['_timing'] = $timing;
+                $response = $cached_result;
+                $response['debug'] = $timing;
                 return rest_ensure_response($response);
             }
             return rest_ensure_response($cached_result);
@@ -665,6 +679,9 @@ class REST {
                 $results = array_slice($distances, 0, $limit);
                 
                 $fallback_duration = microtime(true) - $fallback_start;
+                if ($debug) {
+                    $timing['db_ms'] = (int) round($fallback_duration * 1000);
+                }
                 Logger::log_performance('php_fallback_similarity_search', $fallback_duration, [
                     'total_processed' => $total_processed,
                     'results_returned' => count($results)
@@ -699,7 +716,7 @@ class REST {
 
             if ($debug) {
                 $timing['server_elapsed_ms'] = (int) round((microtime(true) - $server_start) * 1000);
-                $response_data['_timing'] = $timing;
+                $response_data['debug'] = $timing;
             }
             return rest_ensure_response($response_data);
         } catch (\Exception $e) {
