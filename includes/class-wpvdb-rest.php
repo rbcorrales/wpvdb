@@ -395,7 +395,9 @@ class REST {
         // `debug` response key is appended to the returned response only; it
         // is never stored in the wpvdb query result cache. Timer state is
         // allocated only when debug is on so the non-debug path pays zero
-        // overhead.
+        // timing overhead (route arg sanitization and wp_validate_boolean()
+        // still run unconditionally; those are not new costs from this
+        // patch).
         $debug = wp_validate_boolean($data['_debug'] ?? false)
             && current_user_can('manage_options');
         $server_start = null;
